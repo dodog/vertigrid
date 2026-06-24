@@ -55,3 +55,45 @@ msgstr "Tamanho dos ícones"
 
 msgid "Icon Spacing"
 msgstr "Espaçamento dos ícones"
+
+msgid "Group by Category"
+msgstr "Group by Category"
+
+msgid "System"
+msgstr "System"
+
+msgid "Accessories"
+msgstr "Accessories"
+
+msgid "Development"
+msgstr "Development"
+
+msgid "Education"
+msgstr "Education"
+
+msgid "Games"
+msgstr "Games"
+
+msgid "Graphics"
+msgstr "Graphics"
+
+msgid "Internet"
+msgstr "Internet"
+
+msgid "Multimedia"
+msgstr "Multimedia"
+
+msgid "Office"
+msgstr "Office"
+
+msgid "Science"
+msgstr "Science"
+
+msgid "Settings"
+msgstr "Settings"
+
+msgid "Utility"
+msgstr "Utility"
+
+msgid "Other"
+msgstr "Other"
