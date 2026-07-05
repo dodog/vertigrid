@@ -1,0 +1,68 @@
+# Gnome Vertical App Grid Extension Slovak Translation.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the Gnome Vertical App Grid package.
+# Jozef Gaal <preklady@mayday.sk>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: gnome-vertical-app-grid\n"
+"POT-Creation-Date: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: Jozef Gaal <preklady@mayday.sk>\n"
+"Language-Team: Jozef Gaal <preklady@mayday.sk>\n"
+"Language: sk_SK\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Poedit 3.9\n"
+
+msgid "Favorites"
+msgstr "Obľúbené"
+
+msgid "All Apps"
+msgstr "Všetky aplikácie"
+
+msgid "Add to Favorites"
+msgstr "Pridať medzi obľúbené"
+
+msgid "Remove from Favorites"
+msgstr "Odstrániť z obľúbených"
+
+msgid "Preferences"
+msgstr "Predvoľby"
+
+msgid "App Grid"
+msgstr "Mriežka aplikácií"
+
+msgid "App Sorting"
+msgstr "Zoradenie aplikácií"
+
+msgid "Favorites Sorting"
+msgstr "Zoradenie obľúbených"
+
+msgid "Most Used"
+msgstr "Najpoužívanejšie"
+
+msgid "Alphabetical"
+msgstr "Abecedne"
+
+msgid "As in Dash"
+msgstr "Ako v Dash"
+
+msgid "Show Favorites Section"
+msgstr "Zobraziť sekciu Obľúbených"
+
+msgid "Smooth Scrolling"
+msgstr "Plynulé posúvanie"
+
+msgid "Customization"
+msgstr "Prispôsobenie"
+
+msgid "Columns"
+msgstr "Stĺpce"
+
+msgid "Icon Size"
+msgstr "Veľkosť ikony"
+
+msgid "Icon Spacing"
+msgstr "Rozostup ikon"
