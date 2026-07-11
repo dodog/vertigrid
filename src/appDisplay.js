@@ -22,6 +22,34 @@ import {
     getAppCategory
 } from './categories.js';
 
+const CATEGORY_ICONS = {
+    _favorites: 'starred-symbolic',
+    Other: 'applications-other-symbolic',
+    Development: 'utilities-terminal-symbolic',
+    Office: 'x-office-document-symbolic',
+    Network: 'network-wired-symbolic',
+    AudioVideo: 'multimedia-symbolic',
+    Audio: 'audio-x-generic-symbolic',
+    Video: 'video-x-generic-symbolic',
+    Graphics: 'graphics-symbolic',
+    Translation: 'emblem-translate-symbolic',
+    WebDevelopment: 'internet-web-browser-symbolic',
+    PackageManager: 'package-x-generic-symbolic',
+    Ebook: 'accessories-text-editor-symbolic',
+    HardwareSettings: 'computer-symbolic',
+    Finance: 'wallet-symbolic',
+    Backup: 'document-save-symbolic',
+    Security: 'security-high-symbolic',
+    Chat: 'mail-message-new-symbolic',
+    Fonts: 'font-panel-symbolic',
+    Education: 'accessories-calculator-symbolic',
+    Game: 'gamepad-symbolic',
+    Utility: 'applications-utilities-symbolic',
+    Accessories: 'applications-accessories-symbolic',
+    System: 'computer-symbolic',
+    Settings: 'emblem-system-symbolic'
+};
+
 function easeOutCubic(t) {
     return (--t) * t * t + 1;
 }
@@ -68,7 +96,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                 x_expand: false,
                 y_expand: true,
                 style_class: 'category-nav-box',
-                style: 'margin-right: 18px; padding-top: 16px;'
+                style: 'margin-right: 18px; padding: 18px 0 18px 18px; width: 240px;'
             });
 
             this._mainBox = new St.BoxLayout({
@@ -380,13 +408,32 @@ export const VerticalAppDisplay = GObject.registerClass(
                     x_expand: true,
                     reactive: true,
                     can_focus: true,
-                    style: 'margin: 2px 0; padding: 6px 10px; text-align: left;'
+                    style: this._getCategoryButtonStyle(false)
+                });
+                button._categoryId = item.id;
+
+                const categoryRow = new St.BoxLayout({
+                    vertical: false,
+                    x_expand: true,
+                    y_expand: true,
+                    style: 'align-items: center;'
+                });
+
+                const icon = new St.Icon({
+                    icon_name: CATEGORY_ICONS[item.id] || 'applications-other-symbolic',
+                    icon_size: 16,
+                    style: 'margin-right: 10px; opacity: 0.75;'
                 });
                 const label = new St.Label({
                     text: item.label,
-                    style_class: 'search-statustext'
+                    style_class: 'search-statustext',
+                    style: 'font-weight: 500;'
                 });
-                button.add_child(label);
+
+                categoryRow.add_child(icon);
+                categoryRow.add_child(label);
+                button.add_child(categoryRow);
+
                 button.connect('clicked', () => {
                     this._scrollToCategory(item.id);
                 });
@@ -396,6 +443,10 @@ export const VerticalAppDisplay = GObject.registerClass(
                 this._navButtons[item.id] = button;
             });
 
+            if (this._navItems.length > 0 && !this._activeCategory) {
+                this._setActiveCategory(this._navItems[0]._categoryId);
+            }
+
             this._navBox.visible = this._navItems.length > 0;
         }
 
@@ -403,6 +454,22 @@ export const VerticalAppDisplay = GObject.registerClass(
             this._navItems.forEach(button => button.destroy());
             this._navItems = [];
             this._navButtons = {};
+            this._activeCategory = null;
+        }
+
+        _getCategoryButtonStyle(isActive) {
+            const base = 'margin: 6px 0; padding: 10px 12px; border-radius: 16px; text-align: left; width: 100%; border: none;';
+            const active = 'background-color: rgba(255,255,255,0.16); color: white; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);';
+            const normal = 'background-color: transparent; color: rgba(255,255,255,0.82);';
+            return base + (isActive ? active : normal);
+        }
+
+        _setActiveCategory(category) {
+            this._activeCategory = category;
+            this._navItems.forEach(button => {
+                const isActive = button._categoryId === category;
+                button.set_style(this._getCategoryButtonStyle(isActive));
+            });
         }
 
         _scrollToCategory(category) {
@@ -412,6 +479,7 @@ export const VerticalAppDisplay = GObject.registerClass(
             }
 
             this._scrollView.scrollToChild(target);
+            this._setActiveCategory(category);
         }
 
         _loadAppsByCategory() {
