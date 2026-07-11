@@ -10,866 +10,982 @@ import * as AppDisplay from 'resource:///org/gnome/shell/ui/appDisplay.js';
 import * as AppFavorites from 'resource:///org/gnome/shell/ui/appFavorites.js';
 import * as ParentalControlsManager from 'resource:///org/gnome/shell/misc/parentalControlsManager.js';
 
-import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
-import { SIDE_CONTROLS_ANIMATION_TIME } from 'resource:///org/gnome/shell/ui/overviewControls.js';
+import {
+    gettext as _
+} from 'resource:///org/gnome/shell/extensions/extension.js';
+import {
+    SIDE_CONTROLS_ANIMATION_TIME
+} from 'resource:///org/gnome/shell/ui/overviewControls.js';
 
-import { CATEGORY_ORDER, getAppCategory } from './categories.js';
+import {
+    CATEGORY_ORDER,
+    getAppCategory
+} from './categories.js';
 
 function easeOutCubic(t) {
-  return (--t) * t * t + 1;
+    return (--t) * t * t + 1;
 }
 
 export const VerticalAppDisplay = GObject.registerClass(
-class VerticalAppDisplay extends St.Widget {
-  _init(settings) {
-    this._settings = settings;
-    this._laters = global.compositor.get_laters();
+    class VerticalAppDisplay extends St.Widget {
+        _init(settings) {
+            this._settings = settings;
+            this._laters = global.compositor.get_laters();
 
-    super._init({
-      layout_manager: new Clutter.BinLayout(),
-      can_focus: true,
-      reactive: true
+            super._init({
+                layout_manager: new Clutter.BinLayout(),
+                can_focus: true,
+                reactive: true
+            });
+
+            this._favoritesLabel = new St.Label({
+                style_class: 'search-statustext',
+                text: _('Favorites')
+            });
+
+            this._favoritesView = new St.Viewport({
+                layout_manager: new VerticalLayout(settings)
+            });
+
+            this._mainLabel = new St.Label({
+                style_class: 'search-statustext',
+                text: _('All Apps')
+            });
+
+            this._mainView = new St.Viewport({
+                layout_manager: new VerticalLayout(settings)
+            });
+
+            this._scrollView = new VerticalScrollView(settings);
+
+            this._scrollView.add_child(this._favoritesLabel);
+            this._scrollView.add_child(this._favoritesView);
+            this._scrollView.add_child(this._mainLabel);
+            this._scrollView.add_child(this._mainView);
+
+            this._navBox = new St.BoxLayout({
+                vertical: true,
+                x_expand: false,
+                y_expand: true,
+                style_class: 'category-nav-box',
+                style: 'margin-right: 18px; padding-top: 16px;'
+            });
+
+            this._mainBox = new St.BoxLayout({
+                vertical: false,
+                x_expand: true,
+                y_expand: true
+            });
+
+            this._mainBox.add_child(this._navBox);
+            this._mainBox.add_child(this._scrollView);
+            this.add_child(this._mainBox);
+
+            this._navItems = [];
+            this._navButtons = {};
+
+            this._appSystem = Shell.AppSystem.get_default();
+            this._appUsage = Shell.AppUsage.get_default();
+            this._appFavorites = AppFavorites.getAppFavorites();
+            this._parentalControls = ParentalControlsManager.getDefault();
+            this._overview = Main.overview;
+
+            this._connectSignals();
+            this._addAppIcons();
+            this._updateLabelMargins();
+        }
+
+        _connectSignals() {
+            // Redisplay the app grid when an app was installed or removed
+            this._appSystem.connectObject('installed-changed', () => {
+                this._redisplay();
+            }, this);
+
+            // Redisplay when favorites change
+            this._appFavorites.connectObject('changed', () => {
+                this._redisplay();
+            }, this);
+
+            // Redisplay when parental controls change
+            this._parentalControls.connectObject('app-filter-changed', () => {
+                this._redisplay();
+            }, this);
+
+            // Reset scroll when the overview is hidden
+            this._overview.connectObject('hidden', () => {
+                this._scrollView.scrollTo(0, false);
+            }, this);
+
+            // Update layout when settings change
+            this._settings.connectObject('changed', (_, key) => {
+                switch (key) {
+                    case 'app-sorting':
+                    case 'favorites-section':
+                    case 'favorites-sorting':
+                    case 'category-grouping':
+                    case 'show-favorites-in-app-grid':
+                        return this._redisplay();
+
+                    case 'icon-spacing':
+                        return this._updateLabelMargins();
+
+                    case 'icon-size':
+                        return this._updateIconSize();
+                }
+            }, this);
+        }
+
+        _addAppIcons() {
+            const iconSize = this._settings.get_int('icon-size');
+            const favSection = this._settings.get_boolean('favorites-section');
+            const categoryGrouping = this._settings.get_boolean('category-grouping');
+
+            this._appIcons = [];
+            this._categoryLabels = {};
+            this._categoryViews = {};
+
+            if (categoryGrouping) {
+                // Category grouping mode - hide original mainLabel/mainView
+                this._mainLabel.hide();
+                this._mainView.hide();
+                this._favoritesLabel.hide();
+                this._favoritesView.hide();
+
+                const appsByCategory = this._loadAppsByCategory();
+
+                // First, add favorites section if enabled
+                if (favSection && appsByCategory._favorites.length > 0) {
+                    const favLabel = new St.Label({
+                        style_class: 'search-statustext',
+                        text: _('Favorites')
+                    });
+                    const favView = new St.Viewport({
+                        layout_manager: new VerticalLayout(this._settings)
+                    });
+
+                    this._categoryLabels['_favorites'] = favLabel;
+                    this._categoryViews['_favorites'] = favView;
+
+                    // Insert at the beginning to ensure favorites is always on top
+                    this._scrollView.get_child().insert_child_at_index(favLabel, 0);
+                    this._scrollView.get_child().insert_child_at_index(favView, 1);
+
+                    for (const appId of appsByCategory._favorites) {
+                        const app = this._appSystem.lookup_app(appId);
+                        if (!app) continue;
+                        const appIcon = new AppDisplay.AppIcon(app, {
+                            isDraggable: false
+                        });
+                        appIcon.icon.setIconSize(iconSize);
+                        favView.add_child(appIcon);
+                        this._appIcons.push(appIcon);
+                    }
+                }
+
+                // Then add category sections
+                for (const category of CATEGORY_ORDER) {
+                    const appIds = appsByCategory[category];
+                    if (!appIds || appIds.length === 0) continue;
+
+                    const label = new St.Label({
+                        style_class: 'search-statustext',
+                        text: _(category)
+                    });
+                    const view = new St.Viewport({
+                        layout_manager: new VerticalLayout(this._settings)
+                    });
+
+                    this._categoryLabels[category] = label;
+                    this._categoryViews[category] = view;
+
+                    this._scrollView.add_child(label);
+                    this._scrollView.add_child(view);
+
+                    for (const appId of appIds) {
+                        const app = this._appSystem.lookup_app(appId);
+                        if (!app) continue;
+                        const appIcon = new AppDisplay.AppIcon(app, {
+                            isDraggable: false
+                        });
+                        appIcon.icon.setIconSize(iconSize);
+                        view.add_child(appIcon);
+                        this._appIcons.push(appIcon);
+                    }
+                }
+
+                // Add Other category if it has apps
+                if (appsByCategory['Other'] && appsByCategory['Other'].length > 0) {
+                    const label = new St.Label({
+                        style_class: 'search-statustext',
+                        text: _('Other')
+                    });
+                    const view = new St.Viewport({
+                        layout_manager: new VerticalLayout(this._settings)
+                    });
+
+                    this._categoryLabels['Other'] = label;
+                    this._categoryViews['Other'] = view;
+
+                    this._scrollView.add_child(label);
+                    this._scrollView.add_child(view);
+
+                    for (const appId of appsByCategory['Other']) {
+                        const app = this._appSystem.lookup_app(appId);
+                        if (!app) continue;
+                        const appIcon = new AppDisplay.AppIcon(app, {
+                            isDraggable: false
+                        });
+                        appIcon.icon.setIconSize(iconSize);
+                        view.add_child(appIcon);
+                        this._appIcons.push(appIcon);
+                    }
+                }
+
+                this._buildCategoryNav(appsByCategory);
+                this._navBox.show();
+            } else {
+                this._navBox.hide();
+                // Original mode: Favorites and All Apps
+                // Show original labels and views
+                this._favoritesLabel.show();
+                this._favoritesView.show();
+                this._mainLabel.show();
+                this._mainView.show();
+
+                // Ensure favorites is at the top by reordering
+                const scrollBox = this._scrollView.get_child();
+                const favLabelIndex = scrollBox.get_children().indexOf(this._favoritesLabel);
+                const favViewIndex = scrollBox.get_children().indexOf(this._favoritesView);
+
+                if (favLabelIndex !== 0) {
+                    scrollBox.set_child_at_index(this._favoritesLabel, 0);
+                    scrollBox.set_child_at_index(this._favoritesView, 1);
+                }
+
+                const syncFavorites = this._settings.get_boolean('show-favorites-in-app-grid');
+                const installedApps = this._appSystem.get_installed();
+                const favSorting = this._settings.get_string('favorites-sorting');
+                const appSorting = this._settings.get_string('app-sorting');
+                const favIds = this._appFavorites._getIds();
+
+                const favAppInfos = [];
+                const mainAppInfos = [];
+
+                installedApps.forEach(appInfo => {
+                    try {
+                        if (!this._parentalControls.shouldShowApp(appInfo))
+                            return;
+
+                        const appId = appInfo.get_id();
+                        const isFav = this._appFavorites.isFavorite(appId);
+
+                        if (favSection && isFav) {
+                            favAppInfos.push(appInfo);
+                            if (!syncFavorites) return;
+                        }
+
+                        mainAppInfos.push(appInfo);
+                    } catch {}
+                });
+
+                // Sort favorites
+                favAppInfos.sort((a, b) => {
+                    switch (favSorting) {
+                        case 'dash':
+                            return favIds.indexOf(a.get_id()) - favIds.indexOf(b.get_id());
+                        case 'usage':
+                            return this._appUsage.compare(a.get_id(), b.get_id()) || 0;
+                        case 'alphabetical':
+                        default:
+                            return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
+                    }
+                });
+
+                // Sort main apps
+                mainAppInfos.sort((a, b) => {
+                    switch (appSorting) {
+                        case 'usage':
+                            return this._appUsage.compare(a.get_id(), b.get_id()) || 0;
+                        case 'alphabetical':
+                        default:
+                            return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
+                    }
+                });
+
+                // Add favorites
+                for (const appInfo of favAppInfos) {
+                    const app = this._appSystem.lookup_app(appInfo.get_id());
+                    if (!app) continue;
+                    const appIcon = new AppDisplay.AppIcon(app, {
+                        isDraggable: false
+                    });
+                    appIcon.icon.setIconSize(iconSize);
+                    this._favoritesView.add_child(appIcon);
+                    this._appIcons.push(appIcon);
+                }
+
+                // Add main apps
+                for (const appInfo of mainAppInfos) {
+                    const app = this._appSystem.lookup_app(appInfo.get_id());
+                    if (!app) continue;
+                    const appIcon = new AppDisplay.AppIcon(app, {
+                        isDraggable: false
+                    });
+                    appIcon.icon.setIconSize(iconSize);
+                    this._mainView.add_child(appIcon);
+                    this._appIcons.push(appIcon);
+                }
+
+                const showFavSection = this._favoritesView.get_children().length > 0;
+                const showMainSection = this._mainView.get_children().length > 0;
+                const showMainLabel = showFavSection && showMainSection;
+
+                this._favoritesLabel.visible = showFavSection;
+                this._favoritesView.visible = showFavSection;
+                this._mainLabel.visible = showMainLabel;
+                this._mainView.visible = showMainSection;
+            }
+        }
+
+        _buildCategoryNav(appsByCategory) {
+            this._destroyCategoryNav();
+
+            const visibleCategories = [];
+
+            if (appsByCategory['_favorites'] && appsByCategory['_favorites'].length > 0) {
+                visibleCategories.push({
+                    id: '_favorites',
+                    label: _('Favorites')
+                });
+            }
+
+            for (const category of CATEGORY_ORDER) {
+                if (appsByCategory[category] && appsByCategory[category].length > 0) {
+                    visibleCategories.push({
+                        id: category,
+                        label: _(category)
+                    });
+                }
+            }
+
+            if (appsByCategory['Other'] && appsByCategory['Other'].length > 0) {
+                visibleCategories.push({
+                    id: 'Other',
+                    label: _('Other')
+                });
+            }
+
+            visibleCategories.forEach((item, index) => {
+                const button = new St.Button({
+                    x_expand: true,
+                    reactive: true,
+                    can_focus: true,
+                    style: 'margin: 2px 0; padding: 6px 10px; text-align: left;'
+                });
+                const label = new St.Label({
+                    text: item.label,
+                    style_class: 'search-statustext'
+                });
+                button.add_child(label);
+                button.connect('clicked', () => {
+                    this._scrollToCategory(item.id);
+                });
+
+                this._navBox.add_child(button);
+                this._navItems.push(button);
+                this._navButtons[item.id] = button;
+            });
+
+            this._navBox.visible = this._navItems.length > 0;
+        }
+
+        _destroyCategoryNav() {
+            this._navItems.forEach(button => button.destroy());
+            this._navItems = [];
+            this._navButtons = {};
+        }
+
+        _scrollToCategory(category) {
+            const target = this._categoryLabels[category];
+            if (!target) {
+                return;
+            }
+
+            this._scrollView.scrollToChild(target);
+        }
+
+        _loadAppsByCategory() {
+            const installedApps = this._appSystem.get_installed();
+            const favSection = this._settings.get_boolean('favorites-section');
+            const syncFavorites = this._settings.get_boolean('show-favorites-in-app-grid');
+
+            const appsByCategory = {};
+            for (const cat of CATEGORY_ORDER) {
+                appsByCategory[cat] = [];
+            }
+            appsByCategory['Other'] = [];
+            appsByCategory['_favorites'] = [];
+
+            installedApps.forEach(appInfo => {
+                try {
+                    const appId = appInfo.get_id();
+
+                    if (!this._parentalControls.shouldShowApp(appInfo))
+                        return;
+
+                    const isFav = this._appFavorites.isFavorite(appId);
+
+                    // Add to favorites section if enabled
+                    if (favSection && isFav) {
+                        appsByCategory['_favorites'].push(appInfo);
+                        // If show-favorites-in-app-grid is enabled, also add to category (don't return)
+                        if (!syncFavorites) return;
+                    }
+
+                    const category = getAppCategory(appInfo);
+                    appsByCategory[category].push(appInfo);
+                } catch {}
+            });
+
+            // Sort apps within each category
+            const appSorting = this._settings.get_string('app-sorting');
+
+            for (const category in appsByCategory) {
+                if (category === '_favorites') continue;
+
+                appsByCategory[category].sort((a, b) => {
+                    switch (appSorting) {
+                        case 'usage':
+                            return this._appUsage.compare(a.get_id(), b.get_id()) || 0;
+                        case 'alphabetical':
+                        default:
+                            return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
+                    }
+                });
+
+                appsByCategory[category] = appsByCategory[category].map(appInfo => appInfo.get_id());
+            }
+
+            // Sort favorites
+            if (appsByCategory['_favorites'].length > 0) {
+                const favSorting = this._settings.get_string('favorites-sorting');
+                const favIds = this._appFavorites._getIds();
+
+                appsByCategory['_favorites'].sort((a, b) => {
+                    switch (favSorting) {
+                        case 'dash':
+                            return favIds.indexOf(a.get_id()) - favIds.indexOf(b.get_id());
+                        case 'usage':
+                            return this._appUsage.compare(a.get_id(), b.get_id()) || 0;
+                        case 'alphabetical':
+                        default:
+                            return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
+                    }
+                });
+
+                appsByCategory['_favorites'] = appsByCategory['_favorites'].map(appInfo => appInfo.get_id());
+            }
+
+            return appsByCategory;
+        }
+
+        _loadApps() {
+            const installedApps = this._appSystem.get_installed();
+
+            const favs = [];
+            const apps = [];
+
+            // Filter out hidden apps and split off favorites
+            const favSection = this._settings.get_boolean('favorites-section');
+
+            installedApps.forEach(appInfo => {
+                try {
+                    const appId = appInfo.get_id();
+                    const isFav = this._appFavorites.isFavorite(appId);
+
+                    if (this._parentalControls.shouldShowApp(appInfo)) {
+                        if (favSection && isFav) {
+                            favs.push(appInfo);
+                        } else {
+                            apps.push(appInfo);
+                        }
+                    }
+                } catch {}
+            });
+
+            // Sort favorites
+            const favSorting = this._settings.get_string('favorites-sorting');
+            const favIds = this._appFavorites._getIds();
+
+            favs.sort((a, b) => {
+                switch (favSorting) {
+                    case 'dash':
+                        return favIds.indexOf(a.get_id()) - favIds.indexOf(b.get_id());
+
+                    case 'usage':
+                        return this._appUsage.compare(a.get_id(), b.get_id()) || 0;
+
+                    case 'alphabetical':
+                    default:
+                        return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
+                }
+            });
+
+            // Sort apps
+            const appSorting = this._settings.get_string('app-sorting');
+
+            apps.sort((a, b) => {
+                switch (appSorting) {
+                    case 'usage':
+                        return this._appUsage.compare(a.get_id(), b.get_id()) || 0;
+
+                    case 'alphabetical':
+                    default:
+                        return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
+                }
+            });
+
+            return [...favs, ...apps].map(appInfo => appInfo.get_id());
+        }
+
+        _redisplay() {
+            this._animateRedisplay(() => {
+                this._redisplayLater = this._laters.add(Meta.LaterType.IDLE, () => {
+                    this._favoritesView.destroy_all_children();
+                    this._mainView.destroy_all_children();
+
+                    // Clean up category views if they exist
+                    for (const category in this._categoryLabels) {
+                        if (this._categoryLabels[category]) {
+                            this._categoryLabels[category].destroy();
+                            this._categoryLabels[category] = null;
+                        }
+                    }
+                    for (const category in this._categoryViews) {
+                        if (this._categoryViews[category]) {
+                            this._categoryViews[category].destroy();
+                            this._categoryViews[category] = null;
+                        }
+                    }
+                    this._categoryLabels = {};
+                    this._categoryViews = {};
+
+                    this._addAppIcons();
+                    this._animateRedisplay();
+                });
+            });
+        }
+
+        _animateRedisplay(onComplete) {
+            this._scrollView.ease({
+                onComplete,
+                opacity: onComplete ? 0 : 255,
+                duration: SIDE_CONTROLS_ANIMATION_TIME,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD
+            });
+        }
+
+        _updateLabelMargins() {
+            const spacing = this._settings.get_int('icon-spacing');
+
+            // Original favorites label (non-category mode)
+            if (this._favoritesLabel && this._favoritesLabel.visible) {
+                this._favoritesLabel.set_style(`margin: 0 0 ${spacing}px 0;`);
+            }
+            // Original main label (non-category mode)
+            if (this._mainLabel && this._mainLabel.visible) {
+                this._mainLabel.set_style(`margin: ${spacing * 2}px 0 ${spacing}px 0;`);
+            }
+
+            // Category labels (including _favorites in category mode)
+            for (const category in this._categoryLabels) {
+                if (this._categoryLabels[category] && this._categoryLabels[category].visible) {
+                    if (category === '_favorites') {
+                        this._categoryLabels[category].set_style(`margin: 0 0 ${spacing}px 0;`);
+                    } else {
+                        this._categoryLabels[category].set_style(`margin: ${spacing * 2}px 0 ${spacing}px 0;`);
+                    }
+                }
+            }
+        }
+
+        _updateIconSize() {
+            const size = this._settings.get_int('icon-size');
+
+            this._appIcons.forEach(appIcon => {
+                appIcon.icon.setIconSize(size);
+            });
+        }
+
+        vfunc_key_press_event(event) {
+            const key = event.get_key_symbol();
+            const focused = global.stage.get_key_focus();
+
+            if (key === Clutter.KEY_Escape) {
+                return Clutter.EVENT_PROPAGATE;
+            }
+
+            // Keyboard scroll
+            const adjustment = this._scrollView.vadjustment;
+            const pageSize = adjustment.page_size;
+
+            const scroll = {
+                [Clutter.KEY_Home]: 0,
+                [Clutter.KEY_End]: adjustment.upper - pageSize,
+                [Clutter.KEY_Page_Up]: this._scrollView.scroll - pageSize * 0.8,
+                [Clutter.KEY_Page_Down]: this._scrollView.scroll + pageSize * 0.8
+            };
+
+            if (scroll[key] !== undefined) {
+                return this._scrollView.scrollTo(scroll[key]);
+            }
+
+            // Tab and arrow key navigation
+            const navTarget = this._getNavTarget(focused, key);
+
+            if (navTarget) {
+                this._scrollView.scrollToChild(navTarget);
+                navTarget.grab_key_focus();
+
+                return Clutter.EVENT_STOP;
+            }
+
+            return Clutter.EVENT_PROPAGATE;
+        }
+
+        _getNavTarget(focused, key) {
+            const index = this._appIcons.indexOf(focused);
+            const last = this._appIcons.length - 1;
+
+            let targetIndex = index;
+
+            if (index === -1) {
+                if (key === Clutter.KEY_Tab) {
+                    targetIndex = 0;
+                } else if (key === Clutter.KEY_ISO_Left_Tab) {
+                    targetIndex = last;
+                }
+            } else {
+                if (key === Clutter.KEY_Tab) {
+                    targetIndex = index < last ? index + 1 : 0;
+                } else if (key === Clutter.KEY_ISO_Left_Tab) {
+                    targetIndex = index > 0 ? index - 1 : last;
+                }
+            }
+
+            return this._appIcons[targetIndex];
+        }
+
+        destroy() {
+            this._appSystem.disconnectObject(this);
+            this._appFavorites.disconnectObject(this);
+            this._parentalControls.disconnectObject(this);
+            this._overview.disconnectObject(this);
+            this._settings.disconnectObject(this);
+
+            if (this._redisplayLater) {
+                this._laters.remove(this._redisplayLater);
+            }
+
+            for (const appIcon of this._appIcons) {
+                appIcon.destroy();
+            }
+
+            super.destroy();
+        }
     });
-
-    this._favoritesLabel = new St.Label({
-      style_class: 'search-statustext',
-      text: _('Favorites')
-    });
-
-    this._favoritesView = new St.Viewport({
-      layout_manager: new VerticalLayout(settings)
-    });
-
-    this._mainLabel = new St.Label({
-      style_class: 'search-statustext',
-      text: _('All Apps')
-    });
-
-    this._mainView = new St.Viewport({
-      layout_manager: new VerticalLayout(settings)
-    });
-
-    this._scrollView = new VerticalScrollView(settings);
-
-    this._scrollView.add_child(this._favoritesLabel);
-    this._scrollView.add_child(this._favoritesView);
-    this._scrollView.add_child(this._mainLabel);
-    this._scrollView.add_child(this._mainView);
-
-    this.add_child(this._scrollView);
-
-    this._appSystem = Shell.AppSystem.get_default();
-    this._appUsage = Shell.AppUsage.get_default();
-    this._appFavorites = AppFavorites.getAppFavorites();
-    this._parentalControls = ParentalControlsManager.getDefault();
-    this._overview = Main.overview;
-
-    this._connectSignals();
-    this._addAppIcons();
-    this._updateLabelMargins();
-  }
-
-  _connectSignals() {
-    // Redisplay the app grid when an app was installed or removed
-    this._appSystem.connectObject('installed-changed', () => {
-      this._redisplay();
-    }, this);
-
-    // Redisplay when favorites change
-    this._appFavorites.connectObject('changed', () => {
-      this._redisplay();
-    }, this);
-
-    // Redisplay when parental controls change
-    this._parentalControls.connectObject('app-filter-changed', () => {
-      this._redisplay();
-    }, this);
-
-    // Reset scroll when the overview is hidden
-    this._overview.connectObject('hidden', () => {
-      this._scrollView.scrollTo(0, false);
-    }, this);
-
-    // Update layout when settings change
-    this._settings.connectObject('changed', (_, key) => {
-      switch (key) {
-        case 'app-sorting':
-        case 'favorites-section':
-        case 'favorites-sorting':
-        case 'category-grouping':
-        case 'show-favorites-in-app-grid':
-          return this._redisplay();
-
-        case 'icon-spacing':
-          return this._updateLabelMargins();
-
-        case 'icon-size':
-          return this._updateIconSize();
-      }
-    }, this);
-  }
-
-  _addAppIcons() {
-    const iconSize = this._settings.get_int('icon-size');
-    const favSection = this._settings.get_boolean('favorites-section');
-    const categoryGrouping = this._settings.get_boolean('category-grouping');
-
-    this._appIcons = [];
-    this._categoryLabels = {};
-    this._categoryViews = {};
-
-    if (categoryGrouping) {
-      // Category grouping mode - hide original mainLabel/mainView
-      this._mainLabel.hide();
-      this._mainView.hide();
-      this._favoritesLabel.hide();
-      this._favoritesView.hide();
-
-      const appsByCategory = this._loadAppsByCategory();
-
-      // First, add favorites section if enabled
-      if (favSection && appsByCategory._favorites.length > 0) {
-        const favLabel = new St.Label({
-          style_class: 'search-statustext',
-          text: _('Favorites')
-        });
-        const favView = new St.Viewport({
-          layout_manager: new VerticalLayout(this._settings)
-        });
-
-        this._categoryLabels['_favorites'] = favLabel;
-        this._categoryViews['_favorites'] = favView;
-
-        // Insert at the beginning to ensure favorites is always on top
-        this._scrollView.get_child().insert_child_at_index(favLabel, 0);
-        this._scrollView.get_child().insert_child_at_index(favView, 1);
-
-        for (const appId of appsByCategory._favorites) {
-          const app = this._appSystem.lookup_app(appId);
-          if (!app) continue;
-          const appIcon = new AppDisplay.AppIcon(app, { isDraggable: false });
-          appIcon.icon.setIconSize(iconSize);
-          favView.add_child(appIcon);
-          this._appIcons.push(appIcon);
-        }
-      }
-
-      // Then add category sections
-      for (const category of CATEGORY_ORDER) {
-        const appIds = appsByCategory[category];
-        if (!appIds || appIds.length === 0) continue;
-
-        const label = new St.Label({
-          style_class: 'search-statustext',
-          text: _(category)
-        });
-        const view = new St.Viewport({
-          layout_manager: new VerticalLayout(this._settings)
-        });
-
-        this._categoryLabels[category] = label;
-        this._categoryViews[category] = view;
-
-        this._scrollView.add_child(label);
-        this._scrollView.add_child(view);
-
-        for (const appId of appIds) {
-          const app = this._appSystem.lookup_app(appId);
-          if (!app) continue;
-          const appIcon = new AppDisplay.AppIcon(app, { isDraggable: false });
-          appIcon.icon.setIconSize(iconSize);
-          view.add_child(appIcon);
-          this._appIcons.push(appIcon);
-        }
-      }
-
-      // Add Other category if it has apps
-      if (appsByCategory['Other'] && appsByCategory['Other'].length > 0) {
-        const label = new St.Label({
-          style_class: 'search-statustext',
-          text: _('Other')
-        });
-        const view = new St.Viewport({
-          layout_manager: new VerticalLayout(this._settings)
-        });
-
-        this._categoryLabels['Other'] = label;
-        this._categoryViews['Other'] = view;
-
-        this._scrollView.add_child(label);
-        this._scrollView.add_child(view);
-
-        for (const appId of appsByCategory['Other']) {
-          const app = this._appSystem.lookup_app(appId);
-          if (!app) continue;
-          const appIcon = new AppDisplay.AppIcon(app, { isDraggable: false });
-          appIcon.icon.setIconSize(iconSize);
-          view.add_child(appIcon);
-          this._appIcons.push(appIcon);
-        }
-      }
-    } else {
-      // Original mode: Favorites and All Apps
-      // Show original labels and views
-      this._favoritesLabel.show();
-      this._favoritesView.show();
-      this._mainLabel.show();
-      this._mainView.show();
-
-      // Ensure favorites is at the top by reordering
-      const scrollBox = this._scrollView.get_child();
-      const favLabelIndex = scrollBox.get_children().indexOf(this._favoritesLabel);
-      const favViewIndex = scrollBox.get_children().indexOf(this._favoritesView);
-
-      if (favLabelIndex !== 0) {
-        scrollBox.set_child_at_index(this._favoritesLabel, 0);
-        scrollBox.set_child_at_index(this._favoritesView, 1);
-      }
-
-      const syncFavorites = this._settings.get_boolean('show-favorites-in-app-grid');
-      const installedApps = this._appSystem.get_installed();
-      const favSorting = this._settings.get_string('favorites-sorting');
-      const appSorting = this._settings.get_string('app-sorting');
-      const favIds = this._appFavorites._getIds();
-
-      const favAppInfos = [];
-      const mainAppInfos = [];
-
-      installedApps.forEach(appInfo => {
-        try {
-          if (!this._parentalControls.shouldShowApp(appInfo))
-            return;
-
-          const appId = appInfo.get_id();
-          const isFav = this._appFavorites.isFavorite(appId);
-
-          if (favSection && isFav) {
-            favAppInfos.push(appInfo);
-            if (!syncFavorites) return;
-          }
-
-          mainAppInfos.push(appInfo);
-        } catch { }
-      });
-
-      // Sort favorites
-      favAppInfos.sort((a, b) => {
-        switch (favSorting) {
-          case 'dash':
-            return favIds.indexOf(a.get_id()) - favIds.indexOf(b.get_id());
-          case 'usage':
-            return this._appUsage.compare(a.get_id(), b.get_id()) ?? 0;
-          case 'alphabetical': default:
-            return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
-        }
-      });
-
-      // Sort main apps
-      mainAppInfos.sort((a, b) => {
-        switch (appSorting) {
-          case 'usage':
-            return this._appUsage.compare(a.get_id(), b.get_id()) ?? 0;
-          case 'alphabetical': default:
-            return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
-        }
-      });
-
-      // Add favorites
-      for (const appInfo of favAppInfos) {
-        const app = this._appSystem.lookup_app(appInfo.get_id());
-        if (!app) continue;
-        const appIcon = new AppDisplay.AppIcon(app, { isDraggable: false });
-        appIcon.icon.setIconSize(iconSize);
-        this._favoritesView.add_child(appIcon);
-        this._appIcons.push(appIcon);
-      }
-
-      // Add main apps
-      for (const appInfo of mainAppInfos) {
-        const app = this._appSystem.lookup_app(appInfo.get_id());
-        if (!app) continue;
-        const appIcon = new AppDisplay.AppIcon(app, { isDraggable: false });
-        appIcon.icon.setIconSize(iconSize);
-        this._mainView.add_child(appIcon);
-        this._appIcons.push(appIcon);
-      }
-
-      const showFavSection = this._favoritesView.get_children().length > 0;
-      const showMainSection = this._mainView.get_children().length > 0;
-      const showMainLabel = showFavSection && showMainSection;
-
-      this._favoritesLabel.visible = showFavSection;
-      this._favoritesView.visible = showFavSection;
-      this._mainLabel.visible = showMainLabel;
-      this._mainView.visible = showMainSection;
-    }
-  }
-
-  _loadAppsByCategory() {
-    const installedApps = this._appSystem.get_installed();
-    const favSection = this._settings.get_boolean('favorites-section');
-    const syncFavorites = this._settings.get_boolean('show-favorites-in-app-grid');
-
-    const appsByCategory = {};
-    for (const cat of CATEGORY_ORDER) {
-      appsByCategory[cat] = [];
-    }
-    appsByCategory['Other'] = [];
-    appsByCategory['_favorites'] = [];
-
-    installedApps.forEach(appInfo => {
-      try {
-        const appId = appInfo.get_id();
-
-        if (!this._parentalControls.shouldShowApp(appInfo))
-          return;
-
-        const isFav = this._appFavorites.isFavorite(appId);
-
-        // Add to favorites section if enabled
-        if (favSection && isFav) {
-          appsByCategory['_favorites'].push(appInfo);
-          // If show-favorites-in-app-grid is enabled, also add to category (don't return)
-          if (!syncFavorites) return;
-        }
-
-        const category = getAppCategory(appInfo);
-        appsByCategory[category].push(appInfo);
-      } catch { }
-    });
-
-    // Sort apps within each category
-    const appSorting = this._settings.get_string('app-sorting');
-
-    for (const category in appsByCategory) {
-      if (category === '_favorites') continue;
-
-      appsByCategory[category].sort((a, b) => {
-        switch (appSorting) {
-          case 'usage':
-            return this._appUsage.compare(a.get_id(), b.get_id()) ?? 0;
-          case 'alphabetical': default:
-            return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
-        }
-      });
-
-      appsByCategory[category] = appsByCategory[category].map(appInfo => appInfo.get_id());
-    }
-
-    // Sort favorites
-    if (appsByCategory['_favorites'].length > 0) {
-      const favSorting = this._settings.get_string('favorites-sorting');
-      const favIds = this._appFavorites._getIds();
-
-      appsByCategory['_favorites'].sort((a, b) => {
-        switch (favSorting) {
-          case 'dash':
-            return favIds.indexOf(a.get_id()) - favIds.indexOf(b.get_id());
-          case 'usage':
-            return this._appUsage.compare(a.get_id(), b.get_id()) ?? 0;
-          case 'alphabetical': default:
-            return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
-        }
-      });
-
-      appsByCategory['_favorites'] = appsByCategory['_favorites'].map(appInfo => appInfo.get_id());
-    }
-
-    return appsByCategory;
-  }
-
-  _loadApps() {
-    const installedApps = this._appSystem.get_installed();
-
-    const favs = [];
-    const apps = [];
-
-    // Filter out hidden apps and split off favorites
-    const favSection = this._settings.get_boolean('favorites-section');
-
-    installedApps.forEach(appInfo => { try {
-      const appId = appInfo.get_id();
-      const isFav = this._appFavorites.isFavorite(appId);
-
-      if (this._parentalControls.shouldShowApp(appInfo)) {
-        if (favSection && isFav) {
-          favs.push(appInfo);
-        } else {
-          apps.push(appInfo);
-        }
-      }
-    } catch { } });
-
-    // Sort favorites
-    const favSorting = this._settings.get_string('favorites-sorting');
-    const favIds = this._appFavorites._getIds();
-
-    favs.sort((a, b) => {
-      switch (favSorting) {
-        case 'dash':
-          return favIds.indexOf(a.get_id()) - favIds.indexOf(b.get_id());
-
-        case 'usage':
-          return this._appUsage.compare(a.get_id(), b.get_id()) ?? 0;
-
-        case 'alphabetical': default:
-          return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
-      }
-    });
-
-    // Sort apps
-    const appSorting = this._settings.get_string('app-sorting');
-
-    apps.sort((a, b) => {
-      switch (appSorting) {
-        case 'usage':
-          return this._appUsage.compare(a.get_id(), b.get_id()) ?? 0;
-
-        case 'alphabetical': default:
-          return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
-      }
-    });
-
-    return [...favs, ...apps].map(appInfo => appInfo.get_id());
-  }
-
-  _redisplay() {
-    this._animateRedisplay(() => {
-      this._redisplayLater = this._laters.add(Meta.LaterType.IDLE, () => {
-        this._favoritesView.destroy_all_children();
-        this._mainView.destroy_all_children();
-
-        // Clean up category views if they exist
-        for (const category in this._categoryLabels) {
-          if (this._categoryLabels[category]) {
-            this._categoryLabels[category].destroy();
-            this._categoryLabels[category] = null;
-          }
-        }
-        for (const category in this._categoryViews) {
-          if (this._categoryViews[category]) {
-            this._categoryViews[category].destroy();
-            this._categoryViews[category] = null;
-          }
-        }
-        this._categoryLabels = {};
-        this._categoryViews = {};
-
-        this._addAppIcons();
-        this._animateRedisplay();
-      });
-    });
-  }
-
-  _animateRedisplay(onComplete) {
-    this._scrollView.ease({
-      onComplete,
-      opacity: onComplete ? 0 : 255,
-      duration: SIDE_CONTROLS_ANIMATION_TIME,
-      mode: Clutter.AnimationMode.EASE_OUT_QUAD
-    });
-  }
-
-  _updateLabelMargins() {
-    const spacing = this._settings.get_int('icon-spacing');
-
-    // Original favorites label (non-category mode)
-    if (this._favoritesLabel && this._favoritesLabel.visible) {
-      this._favoritesLabel.set_style(`margin: 0 0 ${spacing}px 0;`);
-    }
-    // Original main label (non-category mode)
-    if (this._mainLabel && this._mainLabel.visible) {
-      this._mainLabel.set_style(`margin: ${spacing * 2}px 0 ${spacing}px 0;`);
-    }
-
-    // Category labels (including _favorites in category mode)
-    for (const category in this._categoryLabels) {
-      if (this._categoryLabels[category] && this._categoryLabels[category].visible) {
-        if (category === '_favorites') {
-          this._categoryLabels[category].set_style(`margin: 0 0 ${spacing}px 0;`);
-        } else {
-          this._categoryLabels[category].set_style(`margin: ${spacing * 2}px 0 ${spacing}px 0;`);
-        }
-      }
-    }
-  }
-
-  _updateIconSize() {
-    const size = this._settings.get_int('icon-size');
-
-    this._appIcons.forEach(appIcon => {
-      appIcon.icon.setIconSize(size);
-    });
-  }
-
-  vfunc_key_press_event(event) {
-    const key = event.get_key_symbol();
-    const focused = global.stage.get_key_focus();
-
-    if (key === Clutter.KEY_Escape) {
-      return Clutter.EVENT_PROPAGATE;
-    }
-
-    // Keyboard scroll
-    const adjustment = this._scrollView.vadjustment;
-    const pageSize = adjustment.page_size;
-
-    const scroll = {
-      [Clutter.KEY_Home]: 0,
-      [Clutter.KEY_End]: adjustment.upper - pageSize,
-      [Clutter.KEY_Page_Up]: this._scrollView.scroll - pageSize * 0.8,
-      [Clutter.KEY_Page_Down]: this._scrollView.scroll + pageSize * 0.8
-    };
-
-    if (scroll[key] !== undefined) {
-      return this._scrollView.scrollTo(scroll[key]);
-    }
-
-    // Tab and arrow key navigation
-    const navTarget = this._getNavTarget(focused, key);
-
-    if (navTarget) {
-      this._scrollView.scrollToChild(navTarget);
-      navTarget.grab_key_focus();
-
-      return Clutter.EVENT_STOP;
-    }
-
-    return Clutter.EVENT_PROPAGATE;
-  }
-
-  _getNavTarget(focused, key) {
-    const index = this._appIcons.indexOf(focused);
-    const last = this._appIcons.length - 1;
-
-    let targetIndex = index;
-
-    if (index === -1) {
-      if (key === Clutter.KEY_Tab) {
-        targetIndex = 0;
-      } else if (key === Clutter.KEY_ISO_Left_Tab) {
-        targetIndex = last;
-      }
-    } else {
-      if (key === Clutter.KEY_Tab) {
-        targetIndex = index < last ? index + 1 : 0;
-      } else if (key === Clutter.KEY_ISO_Left_Tab) {
-        targetIndex = index > 0 ? index - 1 : last;
-      }
-    }
-
-    return this._appIcons[targetIndex];
-  }
-
-  destroy() {
-    this._appSystem.disconnectObject(this);
-    this._appFavorites.disconnectObject(this);
-    this._parentalControls.disconnectObject(this);
-    this._overview.disconnectObject(this);
-    this._settings.disconnectObject(this);
-
-    if (this._redisplayLater) {
-      this._laters.remove(this._redisplayLater);
-    }
-
-    for (const appIcon of this._appIcons) {
-      appIcon.destroy();
-    }
-
-    super.destroy();
-  }
-});
 
 const VerticalScrollView = GObject.registerClass(
-class VerticalScrollView extends St.ScrollView {
-  _init(settings) {
-    this._settings = settings;
+    class VerticalScrollView extends St.ScrollView {
+        _init(settings) {
+            this._settings = settings;
 
-    this._scroll = 0;
-    this._trackpadTime = 0;
+            this._scroll = 0;
+            this._trackpadTime = 0;
 
-    this._scrollAnim = {
-      lock: null,
-      startTime: 0,
-      startValue: 0,
-      duration: 0,
-      delta: 0
-    };
+            this._scrollAnim = {
+                lock: null,
+                startTime: 0,
+                startValue: 0,
+                duration: 0,
+                delta: 0
+            };
 
-    super._init({
-      effect: new St.ScrollViewFade({
-        fade_margins: new Clutter.Margin({
-          top: 64,
-          bottom: 64
-        })
-      }),
-      hscrollbar_policy: St.PolicyType.NEVER,
-      vscrollbar_policy: St.PolicyType.NEVER,
-      x_expand: true,
-      y_expand: true
+            super._init({
+                effect: new St.ScrollViewFade({
+                    fade_margins: new Clutter.Margin({
+                        top: 64,
+                        bottom: 64
+                    })
+                }),
+                hscrollbar_policy: St.PolicyType.NEVER,
+                vscrollbar_policy: St.PolicyType.NEVER,
+                x_expand: true,
+                y_expand: true
+            });
+
+            this._scrollBox = new St.BoxLayout({
+                x_align: Clutter.ActorAlign.CENTER,
+                y_align: Clutter.ActorAlign.CENTER,
+                x_expand: false,
+                y_expand: false,
+                vertical: true
+            });
+
+            this.set_child(this._scrollBox);
+        }
+
+        add_child(child) {
+            this._scrollBox.add_child(child);
+        }
+
+        scrollToChild(child) {
+            const childBox = child.get_allocation_box();
+
+            // Get the child's vertical position inside the scroll view
+            let actor = child;
+            let childY = childBox.y1;
+
+            while ((actor = actor.get_parent()) !== this) {
+                childY += actor.get_allocation_box().y1;
+            }
+
+            // Scroll to keep the child vertically centered
+            const adjustment = this.vadjustment;
+
+            const childCenter = childY + childBox.get_height() / 2;
+            const scroll = childCenter - adjustment.page_size / 2;
+
+            this.scrollTo(scroll);
+        }
+
+        scrollTo(scroll, animate = true, duration = 200) {
+            const now = GLib.get_monotonic_time();
+
+            const adjustment = this.vadjustment;
+            const anim = this._scrollAnim;
+
+            // Only scroll if the clamped distance is greater than zero to prevent
+            // rapidly retriggering the animation while holding down a key
+            const min = adjustment.lower;
+            const max = adjustment.upper - adjustment.page_size;
+
+            const scrollClamped = Math.clamp(scroll, min, max);
+            const distance = Math.abs(this.scroll - scrollClamped);
+
+            if (distance === 0) {
+                return Clutter.EVENT_STOP;
+            }
+
+            this._scroll = scrollClamped;
+
+            if (animate) {
+                // Init scroll animation
+                anim.startTime = now;
+                anim.startValue = adjustment.value;
+                anim.delta = this.scroll - adjustment.value;
+
+                if (anim.lock === null) {
+                    anim.lock = global.stage.connect('after-paint', this._scrollAnimationFrame.bind(this));
+                    anim.duration = duration * 1000;
+                }
+            } else {
+                // Cancel running animation
+                if (anim.lock) {
+                    anim.lock = global.stage.disconnect(anim.lock) || null;
+                }
+
+                adjustment.value = this.scroll;
+            }
+
+            // Redraw to trigger the next animation frame
+            this.queue_redraw();
+
+            return Clutter.EVENT_STOP;
+        }
+
+        _scrollAnimationFrame() {
+            const now = GLib.get_monotonic_time();
+
+            const adjustment = this.vadjustment;
+            const anim = this._scrollAnim;
+
+            // Animate towards the scroll target
+            const elapsed = now - anim.startTime;
+            const progress = Math.clamp(elapsed / anim.duration, 0, 1);
+
+            adjustment.value = anim.startValue + anim.delta * easeOutCubic(progress);
+
+            if (progress >= 1) {
+                anim.lock = global.stage.disconnect(anim.lock) || null;
+            }
+
+            this.queue_redraw();
+        }
+
+        vfunc_scroll_event(event) {
+            if (this._settings.get_boolean('animate-scroll')) {
+                return this._animateScroll(event);
+            }
+
+            return super.vfunc_scroll_event(event);
+        }
+
+        _animateScroll(event) {
+            const now = GLib.get_monotonic_time();
+
+            // Ignore emulated events
+            if (event.get_flags() & Clutter.EventFlags.FLAG_POINTER_EMULATED) {
+                return Clutter.EVENT_STOP;
+            }
+
+            // Get scroll delta
+            const adjustment = this.vadjustment;
+
+            const direction = event.get_scroll_direction();
+            const step = adjustment.page_size ** (2 / 3);
+
+            let delta = 0;
+            let animate = false;
+
+            if (direction === Clutter.ScrollDirection.SMOOTH) {
+                // Sometimes events without a smooth delta are emitted when using a
+                // trackpad, so this debounce timestamp is used to prevent any sudden
+                // jumps while scrolling
+                this._trackpadTime = now;
+
+                delta = event.get_scroll_delta()[Clutter.Orientation.VERTICAL] || 0;
+            } else if (now - this._trackpadTime > 1000 * 1000) {
+                if (direction === Clutter.ScrollDirection.UP) {
+                    delta = -1;
+                } else if (direction === Clutter.ScrollDirection.DOWN) {
+                    delta = 1;
+                }
+
+                animate = true;
+            }
+
+            // Animate to the new scroll position
+            const min = adjustment.lower;
+            const max = adjustment.upper - adjustment.page_size;
+
+            const clampedScroll = Math.clamp(this.scroll + delta * step, min, max);
+            const distance = Math.abs(this.scroll - clampedScroll);
+            const duration = (distance / 100) * 200;
+
+            if (distance === 0) {
+                return Clutter.EVENT_STOP;
+            }
+
+            return this.scrollTo(clampedScroll, animate, duration);
+        }
+
+        destroy() {
+            if (this._scrollAnim.lock) {
+                global.stage.disconnect(this._scrollAnim.lock);
+            }
+        }
+
+        get scroll() {
+            return this._scroll;
+        }
     });
-
-    this._scrollBox = new St.BoxLayout({
-      x_align: Clutter.ActorAlign.CENTER,
-      y_align: Clutter.ActorAlign.CENTER,
-      x_expand: false,
-      y_expand: false,
-      vertical: true
-    });
-
-    this.set_child(this._scrollBox);
-  }
-
-  add_child(child) {
-    this._scrollBox.add_child(child);
-  }
-
-  scrollToChild(child) {
-    const childBox = child.get_allocation_box();
-
-    // Get the child's vertical position inside the scroll view
-    let actor = child;
-    let childY = childBox.y1;
-
-    while ((actor = actor.get_parent()) !== this) {
-      childY += actor.get_allocation_box().y1;
-    }
-
-    // Scroll to keep the child vertically centered
-    const adjustment = this.vadjustment;
-
-    const childCenter = childY + childBox.get_height() / 2;
-    const scroll = childCenter - adjustment.page_size / 2;
-
-    this.scrollTo(scroll);
-  }
-
-  scrollTo(scroll, animate = true, duration = 200) {
-    const now = GLib.get_monotonic_time();
-
-    const adjustment = this.vadjustment;
-    const anim = this._scrollAnim;
-
-    // Only scroll if the clamped distance is greater than zero to prevent
-    // rapidly retriggering the animation while holding down a key
-    const min = adjustment.lower;
-    const max = adjustment.upper - adjustment.page_size;
-
-    const scrollClamped = Math.clamp(scroll, min, max);
-    const distance = Math.abs(this.scroll - scrollClamped);
-
-    if (distance === 0) {
-      return Clutter.EVENT_STOP;
-    }
-
-    this._scroll = scrollClamped;
-
-    if (animate) {
-      // Init scroll animation
-      anim.startTime = now;
-      anim.startValue = adjustment.value;
-      anim.delta = this.scroll - adjustment.value;
-
-      if (anim.lock === null) {
-        anim.lock = global.stage.connect('after-paint', this._scrollAnimationFrame.bind(this));
-        anim.duration = duration * 1000;
-      }
-    } else {
-      // Cancel running animation
-      if (anim.lock) {
-        anim.lock = global.stage.disconnect(anim.lock) || null;
-      }
-
-      adjustment.value = this.scroll;
-    }
-
-    // Redraw to trigger the next animation frame
-    this.queue_redraw();
-
-    return Clutter.EVENT_STOP;
-  }
-
-  _scrollAnimationFrame() {
-    const now = GLib.get_monotonic_time();
-
-    const adjustment = this.vadjustment;
-    const anim = this._scrollAnim;
-
-    // Animate towards the scroll target
-    const elapsed = now - anim.startTime;
-    const progress = Math.clamp(elapsed / anim.duration, 0, 1);
-
-    adjustment.value = anim.startValue + anim.delta * easeOutCubic(progress);
-
-    if (progress >= 1) {
-      anim.lock = global.stage.disconnect(anim.lock) || null;
-    }
-
-    this.queue_redraw();
-  }
-
-  vfunc_scroll_event(event) {
-    if (this._settings.get_boolean('animate-scroll')) {
-      return this._animateScroll(event);
-    }
-
-    return super.vfunc_scroll_event(event);
-  }
-
-  _animateScroll(event) {
-    const now = GLib.get_monotonic_time();
-
-    // Ignore emulated events
-    if (event.get_flags() & Clutter.EventFlags.FLAG_POINTER_EMULATED) {
-      return Clutter.EVENT_STOP;
-    }
-
-    // Get scroll delta
-    const adjustment = this.vadjustment;
-
-    const direction = event.get_scroll_direction();
-    const step = adjustment.page_size ** (2 / 3);
-
-    let delta = 0;
-    let animate = false;
-
-    if (direction === Clutter.ScrollDirection.SMOOTH) {
-      // Sometimes events without a smooth delta are emitted when using a
-      // trackpad, so this debounce timestamp is used to prevent any sudden
-      // jumps while scrolling
-      this._trackpadTime = now;
-
-      delta = event.get_scroll_delta()[Clutter.Orientation.VERTICAL] ?? 0;
-    } else if (now - this._trackpadTime > 1000 * 1000) {
-      if (direction === Clutter.ScrollDirection.UP) {
-        delta = -1;
-      } else if (direction === Clutter.ScrollDirection.DOWN) {
-        delta = 1;
-      }
-
-      animate = true;
-    }
-
-    // Animate to the new scroll position
-    const min = adjustment.lower;
-    const max = adjustment.upper - adjustment.page_size;
-
-    const clampedScroll = Math.clamp(this.scroll + delta * step, min, max);
-    const distance = Math.abs(this.scroll - clampedScroll);
-    const duration = (distance / 100) * 200;
-
-    if (distance === 0) {
-      return Clutter.EVENT_STOP;
-    }
-
-    return this.scrollTo(clampedScroll, animate, duration);
-  }
-
-  destroy() {
-    if (this._scrollAnim.lock) {
-      global.stage.disconnect(this._scrollAnim.lock);
-    }
-  }
-
-  get scroll() {
-    return this._scroll;
-  }
-});
 
 const VerticalLayout = GObject.registerClass(
-class VerticalLayout extends Clutter.LayoutManager {
-  _init(settings) {
-    super._init();
+    class VerticalLayout extends Clutter.LayoutManager {
+        _init(settings) {
+            super._init();
 
-    this._settings = settings;
+            this._settings = settings;
 
-    settings.connectObject('changed', (_, key) => {
-      if (['columns', 'icon-spacing'].includes(key)) {
-        this._columns = settings.get_int('columns');
-        this._spacing = settings.get_int('icon-spacing');
+            settings.connectObject('changed', (_, key) => {
+                if (['columns', 'icon-spacing'].includes(key)) {
+                    this._columns = settings.get_int('columns');
+                    this._spacing = settings.get_int('icon-spacing');
 
-        this.layout_changed();
-      }
-    }, this);
+                    this.layout_changed();
+                }
+            }, this);
 
-    this._columns = settings.get_int('columns');
-    this._spacing = settings.get_int('icon-spacing');
-  }
+            this._columns = settings.get_int('columns');
+            this._spacing = settings.get_int('icon-spacing');
+        }
 
-  vfunc_get_preferred_width(container, _forHeight) {
-    const children = container.get_children();
-    const childSize = this._getMinChildSize(children);
+        vfunc_get_preferred_width(container, _forHeight) {
+            const children = container.get_children();
+            const childSize = this._getMinChildSize(children);
 
-    const columns = Math.min(children.length, this._columns);
-    const size = columns * childSize + (columns - 1) * this._spacing;
+            const columns = Math.min(children.length, this._columns);
+            const size = columns * childSize + (columns - 1) * this._spacing;
 
-    if (columns) {
-      return [size, size];
-    }
+            if (columns) {
+                return [size, size];
+            }
 
-    return [0, 0];
-  }
+            return [0, 0];
+        }
 
-  vfunc_get_preferred_height(container, _forWidth) {
-    const children = container.get_children();
-    const childSize = this._getMinChildSize(children);
+        vfunc_get_preferred_height(container, _forWidth) {
+            const children = container.get_children();
+            const childSize = this._getMinChildSize(children);
 
-    const rows = Math.ceil(children.length / this._columns);
-    const size = rows * childSize + (rows - 1) * this._spacing;
+            const rows = Math.ceil(children.length / this._columns);
+            const size = rows * childSize + (rows - 1) * this._spacing;
 
-    if (rows) {
-      return [size, size];
-    }
+            if (rows) {
+                return [size, size];
+            }
 
-    return [0, 0];
-  }
+            return [0, 0];
+        }
 
-  vfunc_allocate(container, _box) {
-    const children = container.get_children();
-    const childSize = this._getMinChildSize(children);
+        vfunc_allocate(container, _box) {
+            const children = container.get_children();
+            const childSize = this._getMinChildSize(children);
 
-    const childBox = new Clutter.ActorBox();
+            const childBox = new Clutter.ActorBox();
 
-    for (let i = 0; i < children.length; i++) {
-      const col = i % this._columns;
-      const row = Math.floor(i / this._columns);
+            for (let i = 0; i < children.length; i++) {
+                const col = i % this._columns;
+                const row = Math.floor(i / this._columns);
 
-      const x = col * (childSize + this._spacing);
-      const y = row * (childSize + this._spacing);
+                const x = col * (childSize + this._spacing);
+                const y = row * (childSize + this._spacing);
 
-      const [_minWidth, _minHeight,
-        naturalWidth, naturalHeight] = children[i].get_preferred_size();
+                const [_minWidth, _minHeight,
+                    naturalWidth, naturalHeight
+                ] = children[i].get_preferred_size();
 
-      childBox.set_origin(
-        Math.floor(x),
-        Math.floor(y)
-      );
+                childBox.set_origin(
+                    Math.floor(x),
+                    Math.floor(y)
+                );
 
-      childBox.set_size(
-        Math.max(childSize, naturalWidth),
-        Math.max(childSize, naturalHeight)
-      );
+                childBox.set_size(
+                    Math.max(childSize, naturalWidth),
+                    Math.max(childSize, naturalHeight)
+                );
 
-      children[i].allocate(childBox);
-    }
-  }
+                children[i].allocate(childBox);
+            }
+        }
 
-  _getMinChildSize(children) {
-    let minWidth = 0;
-    let minHeight = 0;
+        _getMinChildSize(children) {
+            let minWidth = 0;
+            let minHeight = 0;
 
-    children.forEach(child => {
-      const childMinHeight = child.get_preferred_height(-1)[0];
-      const childMinWidth = child.get_preferred_width(-1)[0];
+            children.forEach(child => {
+                const childMinHeight = child.get_preferred_height(-1)[0];
+                const childMinWidth = child.get_preferred_width(-1)[0];
 
-      minWidth = Math.max(minWidth, childMinWidth);
-      minHeight = Math.max(minHeight, childMinHeight);
+                minWidth = Math.max(minWidth, childMinWidth);
+                minHeight = Math.max(minHeight, childMinHeight);
+            });
+
+            return Math.max(minWidth, minHeight);
+        }
+
+        destroy() {
+            this._settings.disconnectObject(this);
+        }
     });
-
-    return Math.max(minWidth, minHeight);
-  }
-
-  destroy() {
-    this._settings.disconnectObject(this);
-  }
-});
