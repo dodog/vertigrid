@@ -143,6 +143,20 @@
           </object>
         </child>
 
+        <child>
+          <object class="AdwSpinRow" id="category-font-size">
+            <property name="title" translatable="yes">Category Label Size</property>
+            <property name="subtitle" translatable="yes">Adjust the font size shown in the category navigation.</property>
+            <property name="adjustment">
+              <object class="GtkAdjustment">
+                <property name="lower">9</property>
+                <property name="upper">16</property>
+                <property name="step-increment">1</property>
+              </object>
+            </property>
+          </object>
+        </child>
+
       </object>
     </child>
 
