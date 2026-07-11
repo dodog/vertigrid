@@ -150,7 +150,7 @@
             <property name="adjustment">
               <object class="GtkAdjustment">
                 <property name="lower">9</property>
-                <property name="upper">16</property>
+                <property name="upper">32</property>
                 <property name="step-increment">1</property>
               </object>
             </property>
