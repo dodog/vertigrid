@@ -19,7 +19,8 @@ import {
 
 import {
     CATEGORY_ORDER,
-    getAppCategory
+    getAppCategory,
+    setAppCategory
 } from './categories.js';
 
 const CATEGORY_ICONS = {
@@ -205,6 +206,10 @@ export const VerticalAppDisplay = GObject.registerClass(
                         const appIcon = new AppDisplay.AppIcon(app, {
                             isDraggable: false
                         });
+                        try {
+                            appIcon._appId = app.get_id();
+                        } catch (e) {}
+                        this._attachDragHandlers(appIcon);
                         appIcon.icon.setIconSize(iconSize);
                         favView.add_child(appIcon);
                         this._appIcons.push(appIcon);
@@ -236,6 +241,11 @@ export const VerticalAppDisplay = GObject.registerClass(
                         const appIcon = new AppDisplay.AppIcon(app, {
                             isDraggable: false
                         });
+                        try {
+                            appIcon._appId = app.get_id();
+                        } catch (e) {}
+                        // Attach centralized drag handlers
+                        this._attachDragHandlers(appIcon);
                         appIcon.icon.setIconSize(iconSize);
                         view.add_child(appIcon);
                         this._appIcons.push(appIcon);
@@ -264,6 +274,10 @@ export const VerticalAppDisplay = GObject.registerClass(
                         const appIcon = new AppDisplay.AppIcon(app, {
                             isDraggable: false
                         });
+                        try {
+                            appIcon._appId = app.get_id();
+                        } catch (e) {}
+                        this._attachDragHandlers(appIcon);
                         appIcon.icon.setIconSize(iconSize);
                         view.add_child(appIcon);
                         this._appIcons.push(appIcon);
@@ -349,6 +363,10 @@ export const VerticalAppDisplay = GObject.registerClass(
                         isDraggable: false
                     });
                     appIcon.icon.setIconSize(iconSize);
+                    try {
+                        appIcon._appId = app.get_id();
+                    } catch (e) {}
+                    this._attachDragHandlers(appIcon);
                     this._favoritesView.add_child(appIcon);
                     this._appIcons.push(appIcon);
                 }
@@ -361,6 +379,10 @@ export const VerticalAppDisplay = GObject.registerClass(
                         isDraggable: false
                     });
                     appIcon.icon.setIconSize(iconSize);
+                    try {
+                        appIcon._appId = app.get_id();
+                    } catch (e) {}
+                    this._attachDragHandlers(appIcon);
                     this._mainView.add_child(appIcon);
                     this._appIcons.push(appIcon);
                 }
@@ -693,6 +715,82 @@ export const VerticalAppDisplay = GObject.registerClass(
             });
         }
 
+        _attachDragHandlers(appIcon) {
+            appIcon.reactive = true;
+            appIcon.connect('button-press-event', (actor, event) => {
+                try {
+                    this._dragActor = actor;
+                    actor._dragging = true;
+                    let x = 0,
+                        y = 0;
+                    try {
+                        const coords = event.get_coords ? event.get_coords() : null;
+                        if (coords) {
+                            x = Math.floor(coords[0]);
+                            y = Math.floor(coords[1]);
+                        } else {
+                            const p = global.get_pointer();
+                            x = Math.floor(p[1]);
+                            y = Math.floor(p[2]);
+                        }
+                    } catch (e) {}
+                    actor._dragStart = {
+                        x,
+                        y
+                    };
+
+                    if (this._dragStageHandler) {
+                        try {
+                            global.stage.disconnect(this._dragStageHandler);
+                        } catch (e) {}
+                        this._dragStageHandler = null;
+                    }
+
+                    this._dragStageHandler = global.stage.connect('button-release-event', (stage, releaseEvent) => {
+                        try {
+                            if (!this._dragActor) return Clutter.EVENT_PROPAGATE;
+                            const src = this._dragActor;
+                            src._dragging = false;
+                            let rx = 0,
+                                ry = 0;
+                            try {
+                                const coords = releaseEvent.get_coords ? releaseEvent.get_coords() : null;
+                                if (coords) {
+                                    rx = Math.floor(coords[0]);
+                                    ry = Math.floor(coords[1]);
+                                } else {
+                                    const p = global.get_pointer();
+                                    rx = Math.floor(p[1]);
+                                    ry = Math.floor(p[2]);
+                                }
+                            } catch (e) {}
+
+                            let target = global.stage.get_actor_at_pos(Clutter.PickMode.ALL, rx, ry);
+                            while (target && !Object.values(this._categoryViews).includes(target)) {
+                                target = target.get_parent();
+                            }
+                            if (target) {
+                                for (const cat in this._categoryViews) {
+                                    if (this._categoryViews[cat] === target) {
+                                        setAppCategory(src._appId, cat);
+                                        this._redisplay();
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (e) {}
+                        try {
+                            global.stage.disconnect(this._dragStageHandler);
+                        } catch (e) {}
+                        this._dragStageHandler = null;
+                        this._dragActor = null;
+                        return Clutter.EVENT_STOP;
+                    });
+                } catch (e) {}
+                return Clutter.EVENT_PROPAGATE;
+            });
+        }
+
         vfunc_key_press_event(event) {
             const key = event.get_key_symbol();
             const focused = global.stage.get_key_focus();
@@ -764,7 +862,9 @@ export const VerticalAppDisplay = GObject.registerClass(
             }
 
             for (const appIcon of this._appIcons) {
-                appIcon.destroy();
+                try {
+                    appIcon.destroy();
+                } catch (e) {}
             }
 
             super.destroy();
@@ -774,45 +874,38 @@ export const VerticalAppDisplay = GObject.registerClass(
 const VerticalScrollView = GObject.registerClass(
     class VerticalScrollView extends St.ScrollView {
         _init(settings) {
+            super._init({
+                hscrollbar_policy: St.PolicyType.NEVER,
+                vscrollbar_policy: St.PolicyType.AUTOMATIC
+            });
+
             this._settings = settings;
-
             this._scroll = 0;
-            this._trackpadTime = 0;
-
             this._scrollAnim = {
                 lock: null,
                 startTime: 0,
                 startValue: 0,
-                duration: 0,
-                delta: 0
+                delta: 0,
+                duration: 0
             };
+            this._trackpadTime = 0;
 
-            super._init({
-                effect: new St.ScrollViewFade({
-                    fade_margins: new Clutter.Margin({
-                        top: 64,
-                        bottom: 64
-                    })
-                }),
-                hscrollbar_policy: St.PolicyType.NEVER,
-                vscrollbar_policy: St.PolicyType.NEVER,
-                x_expand: true,
-                y_expand: true
-            });
-
-            this._scrollBox = new St.BoxLayout({
-                x_align: Clutter.ActorAlign.CENTER,
-                y_align: Clutter.ActorAlign.CENTER,
+            const box = new St.BoxLayout({
+                vertical: true,
                 x_expand: false,
-                y_expand: false,
-                vertical: true
+                y_expand: false
             });
 
-            this.set_child(this._scrollBox);
+            this._scrollBox = box;
+            this.set_child(box);
         }
 
         add_child(child) {
             this._scrollBox.add_child(child);
+        }
+
+        get_child() {
+            return this._scrollBox;
         }
 
         scrollToChild(child) {
@@ -960,6 +1053,7 @@ const VerticalScrollView = GObject.registerClass(
             if (this._scrollAnim.lock) {
                 global.stage.disconnect(this._scrollAnim.lock);
             }
+            super.destroy();
         }
 
         get scroll() {
