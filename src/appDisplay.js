@@ -20,7 +20,8 @@ import {
 import {
     CATEGORY_ORDER,
     getAppCategory,
-    setAppCategory
+    setAppCategory,
+    getCategoryOrderMap
 } from './categories.js';
 
 const CATEGORY_ICONS = {
@@ -564,6 +565,26 @@ export const VerticalAppDisplay = GObject.registerClass(
                 appsByCategory[category] = appsByCategory[category].map(appInfo => appInfo.get_id());
             }
 
+            // Apply user-defined ordering (from app-category-overrides with index)
+            try {
+                const orderMap = getCategoryOrderMap();
+                for (const [cat, order] of orderMap.entries()) {
+                    if (!appsByCategory[cat]) continue;
+                    const present = new Set(appsByCategory[cat]);
+                    const ordered = [];
+                    for (const id of order) {
+                        if (present.has(id)) {
+                            ordered.push(id);
+                            present.delete(id);
+                        }
+                    }
+                    // append remaining apps
+                    for (const id of appsByCategory[cat])
+                        if (present.has(id)) ordered.push(id);
+                    appsByCategory[cat] = ordered;
+                }
+            } catch (e) {}
+
             // Sort favorites
             if (appsByCategory['_favorites'].length > 0) {
                 const favSorting = this._settings.get_string('favorites-sorting');
@@ -715,76 +736,316 @@ export const VerticalAppDisplay = GObject.registerClass(
             });
         }
 
+        _getEventCoords(event) {
+            try {
+                if (event && event.get_coords) {
+                    const coords = event.get_coords();
+                    return [Math.floor(coords[0]), Math.floor(coords[1])];
+                }
+
+                const p = global.get_pointer();
+                if (p && p.length >= 2) {
+                    // Some environments return [device, x, y]
+                    if (p.length >= 3) return [Math.floor(p[1]), Math.floor(p[2])];
+                    return [Math.floor(p[0]), Math.floor(p[1])];
+                }
+            } catch (e) {}
+
+            return [0, 0];
+        }
+
+        _findCategoryViewFromActor(actor) {
+            let target = actor;
+            while (target) {
+                for (const cat in this._categoryViews) {
+                    if (this._categoryViews[cat] === target) {
+                        return {
+                            view: this._categoryViews[cat],
+                            category: cat
+                        };
+                    }
+                }
+                try {
+                    target = target.get_parent();
+                } catch (e) {
+                    target = null;
+                }
+            }
+            return {
+                view: null,
+                category: null
+            };
+        }
+
+        _findCategoryViewAtStagePoint(x, y) {
+            for (const cat in this._categoryViews) {
+                const view = this._categoryViews[cat];
+                if (!view) continue;
+
+                let viewPos = [0, 0];
+                try {
+                    if (view.translate_coordinates) {
+                        viewPos = view.translate_coordinates(global.stage, 0, 0);
+                    } else if (view.get_transformed_position) {
+                        viewPos = view.get_transformed_position();
+                    }
+                } catch (e) {}
+
+                let bounds = null;
+                try {
+                    bounds = view.get_allocation_box();
+                } catch (e) {}
+
+                if (!bounds) continue;
+
+                const width = bounds.x2 - bounds.x1;
+                const height = bounds.y2 - bounds.y1;
+
+                if (x >= viewPos[0] && x <= viewPos[0] + width && y >= viewPos[1] && y <= viewPos[1] + height) {
+                    return {
+                        view,
+                        category: cat
+                    };
+                }
+            }
+            return {
+                view: null,
+                category: null
+            };
+        }
+
+        _startDrag(actor) {
+            try {
+                // Ensure any previous drag state is cleared
+                if (this._dragGhost) {
+                    try {
+                        global.stage.remove_child(this._dragGhost);
+                    } catch (e) {}
+                    this._dragGhost = null;
+                }
+
+                this._dragActor = actor;
+                actor._dragging = true;
+
+                // Create drag ghost
+                try {
+                    this._dragGhost = new Clutter.Clone({
+                        source: actor
+                    });
+                    this._dragGhost.set_opacity(200);
+                    this._dragGhost.set_scale(0.9, 0.9);
+                    try {
+                        this._dragGhost.set_reactive(false);
+                    } catch (e) {}
+                    global.stage.add_child(this._dragGhost);
+                    this._dragGhost.raise_top();
+                } catch (e) {}
+
+                // Connect motion handler
+                if (this._dragMotionHandler) {
+                    try {
+                        global.stage.disconnect(this._dragMotionHandler);
+                    } catch (e) {}
+                    this._dragMotionHandler = null;
+                }
+
+                this._dragMotionHandler = global.stage.connect('motion-event', (stage, motionEvent) => {
+                    try {
+                        const [mx, my] = this._getEventCoords(motionEvent);
+                        if (this._dragGhost) {
+                            const [w, h] = [this._dragGhost.get_width(), this._dragGhost.get_height()];
+                            this._dragGhost.set_position(Math.floor(mx - w / 2), Math.floor(my - h / 2));
+                        }
+
+                        const target = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, mx, my);
+                        let found = this._findCategoryViewFromActor(target);
+                        if (!found.view) {
+                            found = this._findCategoryViewAtStagePoint(mx, my);
+                        }
+                        const foundView = found.view;
+                        if (foundView !== this._highlightedView) {
+                            try {
+                                if (this._highlightedView) this._highlightedView.set_style('');
+                            } catch (e) {}
+                            this._highlightedView = foundView;
+                            try {
+                                if (this._highlightedView) this._highlightedView.set_style('box-shadow: inset 0 0 0 2px rgba(255,255,255,0.08); background-color: rgba(255,255,255,0.02);');
+                            } catch (e) {}
+                        }
+                    } catch (e) {}
+                    return Clutter.EVENT_PROPAGATE;
+                });
+
+                // Connect stage release handler
+                if (this._dragStageHandler) {
+                    try {
+                        global.stage.disconnect(this._dragStageHandler);
+                    } catch (e) {}
+                    this._dragStageHandler = null;
+                }
+
+                this._dragStageHandler = global.stage.connect('button-release-event', (stage, releaseEvent) => {
+                    try {
+                        if (!this._dragActor) return Clutter.EVENT_PROPAGATE;
+                        const src = this._dragActor;
+                        src._dragging = false;
+                        const [rx, ry] = this._getEventCoords(releaseEvent);
+
+                        const dumpActorPath = actor => {
+                            const path = [];
+                            let current = actor;
+                            while (current) {
+                                const name = current.get_name ? current.get_name() : '<unnamed>';
+                                const type = current.toString ? current.toString() : '<unknown>';
+                                path.push(`${name} (${type})`);
+                                try {
+                                    current = current.get_parent();
+                                } catch (e) {
+                                    current = null;
+                                }
+                            }
+                            return path.join(' -> ');
+                        };
+
+                        log(`vertigrid: drop release coords=${rx},${ry}`);
+                        const targetActor = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, rx, ry);
+                        log(`vertigrid: hit targetActor=${targetActor ? targetActor.get_name ? targetActor.get_name() : '<unknown>' : 'null'}`);
+                        log(`vertigrid: actor hierarchy=${targetActor ? dumpActorPath(targetActor) : '<none>'}`);
+
+                        let found = this._findCategoryViewFromActor(targetActor);
+                        if (!found.view) {
+                            found = this._findCategoryViewAtStagePoint(rx, ry);
+                            log(`vertigrid: fallback category=${found.category}`);
+                        }
+                        log(`vertigrid: found category=${found.category}`);
+                        if (found.view) {
+                            const cat = found.category;
+                            const destView = found.view;
+
+                            let childUnder = targetActor;
+                            let insertIndex = destView.get_children().length;
+
+                            while (childUnder && childUnder !== destView) {
+                                if (childUnder.get_parent && childUnder.get_parent() === destView) {
+                                    const children = destView.get_children();
+                                    const idx = children.indexOf(childUnder);
+                                    if (idx !== -1) {
+                                        insertIndex = idx;
+                                        break;
+                                    }
+                                }
+                                try {
+                                    childUnder = childUnder.get_parent();
+                                } catch (e) {
+                                    childUnder = null;
+                                }
+                            }
+
+                            log(`vertigrid: dropping into=${cat} insertIndex=${insertIndex}`);
+                            try {
+                                setAppCategory(src._appId, cat, insertIndex);
+                            } catch (e) {
+                                log(`vertigrid: setAppCategory error=${e}`);
+                                setAppCategory(src._appId, cat);
+                            }
+
+                            this._redisplay();
+                        }
+                    } catch (e) {
+                        log(`vertigrid: release handler exception=${e}`);
+                    }
+                    try {
+                        global.stage.disconnect(this._dragStageHandler);
+                    } catch (e) {}
+                    this._dragStageHandler = null;
+
+                    if (this._dragMotionHandler) {
+                        try {
+                            global.stage.disconnect(this._dragMotionHandler);
+                        } catch (e) {}
+                        this._dragMotionHandler = null;
+                    }
+
+                    if (this._dragGhost) {
+                        try {
+                            global.stage.remove_child(this._dragGhost);
+                        } catch (e) {}
+                        this._dragGhost = null;
+                    }
+
+                    this._dragActor = null;
+                    return Clutter.EVENT_STOP;
+                });
+            } catch (e) {}
+        }
+
         _attachDragHandlers(appIcon) {
             appIcon.reactive = true;
             appIcon.connect('button-press-event', (actor, event) => {
                 try {
-                    this._dragActor = actor;
-                    actor._dragging = true;
-                    let x = 0,
-                        y = 0;
-                    try {
-                        const coords = event.get_coords ? event.get_coords() : null;
-                        if (coords) {
-                            x = Math.floor(coords[0]);
-                            y = Math.floor(coords[1]);
-                        } else {
-                            const p = global.get_pointer();
-                            x = Math.floor(p[1]);
-                            y = Math.floor(p[2]);
-                        }
-                    } catch (e) {}
+                    const [x, y] = this._getEventCoords(event);
                     actor._dragStart = {
                         x,
                         y
                     };
 
-                    if (this._dragStageHandler) {
+                    // Small threshold before starting an actual drag (px)
+                    const threshold = 8;
+
+                    // Clean any pending handlers
+                    if (this._pendingMotionId) {
                         try {
-                            global.stage.disconnect(this._dragStageHandler);
+                            global.stage.disconnect(this._pendingMotionId);
                         } catch (e) {}
-                        this._dragStageHandler = null;
+                        this._pendingMotionId = null;
+                    }
+                    if (this._pendingReleaseId) {
+                        try {
+                            global.stage.disconnect(this._pendingReleaseId);
+                        } catch (e) {}
+                        this._pendingReleaseId = null;
                     }
 
-                    this._dragStageHandler = global.stage.connect('button-release-event', (stage, releaseEvent) => {
+                    // Pending motion handler: wait until pointer moves beyond threshold
+                    this._pendingMotionId = global.stage.connect('motion-event', (stage, motionEvent) => {
                         try {
-                            if (!this._dragActor) return Clutter.EVENT_PROPAGATE;
-                            const src = this._dragActor;
-                            src._dragging = false;
-                            let rx = 0,
-                                ry = 0;
-                            try {
-                                const coords = releaseEvent.get_coords ? releaseEvent.get_coords() : null;
-                                if (coords) {
-                                    rx = Math.floor(coords[0]);
-                                    ry = Math.floor(coords[1]);
-                                } else {
-                                    const p = global.get_pointer();
-                                    rx = Math.floor(p[1]);
-                                    ry = Math.floor(p[2]);
-                                }
-                            } catch (e) {}
+                            const [mx, my] = this._getEventCoords(motionEvent);
+                            const dx = mx - actor._dragStart.x;
+                            const dy = my - actor._dragStart.y;
+                            const distSq = dx * dx + dy * dy;
+                            if (distSq >= threshold * threshold) {
+                                // start actual drag
+                                try {
+                                    global.stage.disconnect(this._pendingMotionId);
+                                } catch (e) {}
+                                this._pendingMotionId = null;
+                                try {
+                                    global.stage.disconnect(this._pendingReleaseId);
+                                } catch (e) {}
+                                this._pendingReleaseId = null;
+                                this._startDrag(actor);
+                            }
+                        } catch (e) {}
+                        return Clutter.EVENT_PROPAGATE;
+                    });
 
-                            let target = global.stage.get_actor_at_pos(Clutter.PickMode.ALL, rx, ry);
-                            while (target && !Object.values(this._categoryViews).includes(target)) {
-                                target = target.get_parent();
-                            }
-                            if (target) {
-                                for (const cat in this._categoryViews) {
-                                    if (this._categoryViews[cat] === target) {
-                                        setAppCategory(src._appId, cat);
-                                        this._redisplay();
-                                        break;
-                                    }
-                                }
-                            }
-                        } catch (e) {}
+                    // If released before threshold, cancel pending drag
+                    this._pendingReleaseId = global.stage.connect('button-release-event', (stage, relEvent) => {
                         try {
-                            global.stage.disconnect(this._dragStageHandler);
+                            if (this._pendingMotionId) {
+                                try {
+                                    global.stage.disconnect(this._pendingMotionId);
+                                } catch (e) {}
+                                this._pendingMotionId = null;
+                            }
+                            if (this._pendingReleaseId) {
+                                try {
+                                    global.stage.disconnect(this._pendingReleaseId);
+                                } catch (e) {}
+                                this._pendingReleaseId = null;
+                            }
                         } catch (e) {}
-                        this._dragStageHandler = null;
-                        this._dragActor = null;
-                        return Clutter.EVENT_STOP;
+                        return Clutter.EVENT_PROPAGATE;
                     });
                 } catch (e) {}
                 return Clutter.EVENT_PROPAGATE;
