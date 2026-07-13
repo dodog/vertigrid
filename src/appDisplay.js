@@ -1187,7 +1187,7 @@ const VerticalScrollView = GObject.registerClass(
         _init(settings) {
             super._init({
                 hscrollbar_policy: St.PolicyType.NEVER,
-                vscrollbar_policy: St.PolicyType.AUTOMATIC
+                vscrollbar_policy: St.PolicyType.NEVER
             });
 
             this._settings = settings;
