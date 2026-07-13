@@ -74,7 +74,8 @@ export const VerticalAppDisplay = GObject.registerClass(
             });
 
             this._favoritesView = new St.Viewport({
-                layout_manager: new VerticalLayout(settings)
+                layout_manager: new VerticalLayout(settings),
+                style: 'overflow: hidden;'
             });
 
             this._mainLabel = new St.Label({
@@ -83,7 +84,8 @@ export const VerticalAppDisplay = GObject.registerClass(
             });
 
             this._mainView = new St.Viewport({
-                layout_manager: new VerticalLayout(settings)
+                layout_manager: new VerticalLayout(settings),
+                style: 'overflow: hidden;'
             });
 
             this._scrollView = new VerticalScrollView(settings);
@@ -191,7 +193,8 @@ export const VerticalAppDisplay = GObject.registerClass(
                         text: _('Favorites')
                     });
                     const favView = new St.Viewport({
-                        layout_manager: new VerticalLayout(this._settings)
+                        layout_manager: new VerticalLayout(this._settings),
+                        style: 'overflow: hidden;'
                     });
 
                     this._categoryLabels['_favorites'] = favLabel;
@@ -219,15 +222,15 @@ export const VerticalAppDisplay = GObject.registerClass(
 
                 // Then add category sections
                 for (const category of CATEGORY_ORDER) {
-                    const appIds = appsByCategory[category];
-                    if (!appIds || appIds.length === 0) continue;
+                    const appIds = appsByCategory[category] || [];
 
                     const label = new St.Label({
                         style_class: 'search-statustext',
                         text: _(category)
                     });
                     const view = new St.Viewport({
-                        layout_manager: new VerticalLayout(this._settings)
+                        layout_manager: new VerticalLayout(this._settings),
+                        style: 'overflow: hidden;'
                     });
 
                     this._categoryLabels[category] = label;
@@ -236,6 +239,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                     this._scrollView.add_child(label);
                     this._scrollView.add_child(view);
 
+                    // Add any apps for this category (if present)
                     for (const appId of appIds) {
                         const app = this._appSystem.lookup_app(appId);
                         if (!app) continue;
@@ -260,7 +264,8 @@ export const VerticalAppDisplay = GObject.registerClass(
                         text: _('Other')
                     });
                     const view = new St.Viewport({
-                        layout_manager: new VerticalLayout(this._settings)
+                        layout_manager: new VerticalLayout(this._settings),
+                        style: 'overflow: hidden;'
                     });
 
                     this._categoryLabels['Other'] = label;
@@ -412,12 +417,10 @@ export const VerticalAppDisplay = GObject.registerClass(
             }
 
             for (const category of CATEGORY_ORDER) {
-                if (appsByCategory[category] && appsByCategory[category].length > 0) {
-                    visibleCategories.push({
-                        id: category,
-                        label: _(category)
-                    });
-                }
+                visibleCategories.push({
+                    id: category,
+                    label: _(category)
+                });
             }
 
             if (appsByCategory['Other'] && appsByCategory['Other'].length > 0) {
@@ -796,17 +799,64 @@ export const VerticalAppDisplay = GObject.registerClass(
                     bounds = view.get_allocation_box();
                 } catch (e) {}
 
-                if (!bounds) continue;
+                // If the view has no allocation (empty), try to allow dropping
+                // on the area under the category label so users can drop into
+                // empty categories.
+                let width = 0;
+                let height = 0;
+                if (bounds) {
+                    width = bounds.x2 - bounds.x1;
+                    height = bounds.y2 - bounds.y1;
+                }
 
-                const width = bounds.x2 - bounds.x1;
-                const height = bounds.y2 - bounds.y1;
-
-                if (x >= viewPos[0] && x <= viewPos[0] + width && y >= viewPos[1] && y <= viewPos[1] + height) {
+                // Primary hit-test: view bounds
+                if (bounds && x >= viewPos[0] && x <= viewPos[0] + width && y >= viewPos[1] && y <= viewPos[1] + height) {
                     return {
                         view,
                         category: cat
                     };
                 }
+
+                // If view is effectively empty (very small height), expand drop area
+                // to include the label and a small region below it so dragging
+                // into empty categories works.
+                try {
+                    if (!bounds || height <= 2) {
+                        const label = this._categoryLabels[cat];
+                        if (label) {
+                            let labelPos = [0, 0];
+                            try {
+                                if (label.translate_coordinates) {
+                                    labelPos = label.translate_coordinates(global.stage, 0, 0);
+                                } else if (label.get_transformed_position) {
+                                    labelPos = label.get_transformed_position();
+                                }
+                            } catch (e) {}
+
+                            let labelBox = null;
+                            try {
+                                labelBox = label.get_allocation_box();
+                            } catch (e) {}
+
+                            const labelWidth = labelBox ? (labelBox.x2 - labelBox.x1) : Math.max(64, width);
+                            const labelHeight = labelBox ? (labelBox.y2 - labelBox.y1) : 24;
+
+                            const dropPadding = 160; // extra vertical area below label
+
+                            const dropX1 = labelPos[0];
+                            const dropX2 = labelPos[0] + labelWidth;
+                            const dropY1 = labelPos[1];
+                            const dropY2 = labelPos[1] + labelHeight + dropPadding;
+
+                            if (x >= dropX1 && x <= dropX2 && y >= dropY1 && y <= dropY2) {
+                                return {
+                                    view,
+                                    category: cat
+                                };
+                            }
+                        }
+                    }
+                } catch (e) {}
             }
             return {
                 view: null,
