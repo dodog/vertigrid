@@ -1,4 +1,5 @@
 import Clutter from 'gi://Clutter';
+import GLib from 'gi://GLib';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as AppMenu from 'resource:///org/gnome/shell/ui/appMenu.js';
@@ -24,85 +25,244 @@ export default class VerticalAppGridExtension extends Extension {
         this._settings = this.getSettings();
         this._vertAppDisplay = new VerticalAppDisplay(this._settings);
         this._injectionManager = new InjectionManager();
+        this._overviewShowingId = null;
+        this._overviewReadyPollId = null;
 
-        // Apply workspace visibility preference
-        this._updateWorkspacesVisibility = () => {
-            try {
-                const show = this._settings.get_boolean('show-workspaces');
-                const overview = Main.overview && Main.overview._overview;
-                if (!overview) return;
+        this._getOverviewControls = () => Main.overview && Main.overview._overview ? Main.overview._overview._controls : null;
 
-                const visited = new Set();
+        this._onOverviewReady = () => {
+            const attached = this._attachOverviewControls();
+            this._setAppDisplayLayout();
+            if (this._installAppDisplayBoxOverride) {
+                this._installAppDisplayBoxOverride();
+            }
+            this._updateWorkspacesVisibility();
+            return attached;
+        };
 
-                function recurse(actor) {
-                    if (!actor || visited.has(actor)) return;
-                    visited.add(actor);
+        this._attachOverviewControls = () => {
+            const controls = this._getOverviewControls();
+            if (!controls || !this._vertAppDisplay) {
+                return false;
+            }
 
-                    try {
-                        const name = actor.get_name ? actor.get_name() : '';
-                        const styleClass = actor.get_style_class_name ? actor.get_style_class_name().toString() : '';
-                        const style = actor.style_class || '';
-                        const protoName = actor.constructor ? actor.constructor.name : '';
-                        const summary = `${name} ${styleClass} ${style} ${protoName}`.toLowerCase();
+            if (this._vertAppDisplay.get_parent() !== controls) {
+                controls.add_child(this._vertAppDisplay);
+            }
 
-                        if (summary.includes('workspace') ||
-                            summary.includes('viewselector') ||
-                            summary.includes('workspace-switcher') ||
-                            summary.includes('workspaceindicator') ||
-                            summary.includes('workspace-indicator') ||
-                            summary.includes('switcher')) {
-                            try {
-                                if ('visible' in actor) {
-                                    actor.visible = show;
-                                }
-                            } catch (e) {}
-                        }
-                    } catch (e) {}
+            this._overviewControls = controls;
+            this._overviewLayoutManager = controls.layout_manager;
 
-                    try {
-                        const children = actor.get_children ? actor.get_children() : [];
-                        for (let child of children) recurse(child);
-                    } catch (e) {}
+            return true;
+        };
+
+        this._setAppDisplayLayout = () => {
+            if (!this._overviewLayoutManager || !this._vertAppDisplay) {
+                return;
+            }
+
+            this._overviewLayoutManager._appDisplay = this._vertAppDisplay;
+        };
+
+        this._startOverviewReadyPoll = () => {
+            if (this._overviewReadyPollId !== null) {
+                return;
+            }
+
+            this._overviewReadyPollId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+                if (this._onOverviewReady()) {
+                    this._overviewReadyPollId = null;
+                    return GLib.SOURCE_REMOVE;
                 }
+                return GLib.SOURCE_CONTINUE;
+            });
+        };
 
-                recurse(overview);
-                recurse(Main.overview);
-                if (Main.overview && Main.overview._controls) {
-                    recurse(Main.overview._controls);
-                }
-
-                const directActors = [
-                    overview._workspaceSwitcher,
-                    overview._workspaceGrid,
-                    Main.overview && Main.overview.viewSelector,
-                    Main.overview && Main.overview._workspaceSwitcher,
-                    Main.overview && Main.overview._workspaceIndicator,
-                    Main.overview && Main.overview._controls
-                ];
-
-                directActors.forEach(actor => {
-                    try {
-                        if (actor && 'visible' in actor) {
-                            actor.visible = show;
-                        }
-                    } catch (e) {}
-                });
-            } catch (e) {
-                log(`ez-launcher: Failed to update workspace visibility: ${e}`);
+        this._stopOverviewReadyPoll = () => {
+            if (this._overviewReadyPollId !== null) {
+                GLib.source_remove(this._overviewReadyPollId);
+                this._overviewReadyPollId = null;
             }
         };
 
-        this._settingsSignal = this._settings.connect('changed::show-workspaces', () => this._updateWorkspacesVisibility());
-        this._updateWorkspacesVisibility();
+        this._ensureOverviewConnections = () => {
+            if (!Main.overview || this._overviewShowingId !== null) {
+                return;
+            }
 
-        // Add the vertical app display to the overview
-        this._overviewControls = Main.overview._overview._controls;
-        this._overviewLayoutManager = this._overviewControls.layout_manager;
+            if (Main.overview.connect) {
+                this._overviewShowingId = Main.overview.connect('showing', () => {
+                    this._onOverviewReady();
+                });
+            }
+        };
 
-        this._overviewControls.add_child(this._vertAppDisplay);
+        // Apply workspace visibility preference.
+        this._updateWorkspacesVisibility = () => {
+            try {
+                const show = this._settings.get_boolean('show-workspaces');
+                const controls = this._overviewControls || this._getOverviewControls();
+
+                if (!controls) {
+                    this._ensureOverviewConnections();
+                    return;
+                }
+
+                this._overviewControls = controls;
+                const workspaceDisplay = controls._workspacesDisplay;
+
+                if (!workspaceDisplay) {
+                    // Controls exist but haven't finished constructing yet; retry.
+                    this._ensureOverviewConnections();
+                    return;
+                }
+
+                let hidden = false;
+
+                try {
+                    if (show) {
+                        workspaceDisplay.show();
+                        workspaceDisplay.visible = true;
+                        workspaceDisplay.reactive = true;
+                        workspaceDisplay.sensitive = true;
+                        workspaceDisplay.opacity = 255;
+                        if (workspaceDisplay._swipeTracker) {
+                            workspaceDisplay._swipeTracker.enabled = true;
+                        }
+                    } else {
+                        workspaceDisplay.hide();
+                        workspaceDisplay.visible = false;
+                        workspaceDisplay.reactive = false;
+                        workspaceDisplay.sensitive = false;
+                        workspaceDisplay.opacity = 0;
+                        if (workspaceDisplay._swipeTracker) {
+                            workspaceDisplay._swipeTracker.enabled = false;
+                        }
+                    }
+                    hidden = true;
+                } catch (e) {
+                    log(`vertigrid: Error toggling workspacesDisplay: ${e}`);
+                }
+
+                // Force layout updates
+                if (hidden) {
+                    try {
+                        if (controls.layout_manager) {
+                            controls.layout_manager.layout_changed();
+                        }
+                        controls.queue_relayout();
+                        const parent = controls.get_parent();
+                        if (parent && parent.layout_manager) {
+                            parent.layout_manager.layout_changed();
+                        }
+                        if (parent) {
+                            parent.queue_relayout();
+                        }
+                    } catch (e) {
+                        log(`vertigrid: Error in layout update: ${e}`);
+                    }
+                }
+            } catch (e) {
+                log(`vertigrid: Failed to update workspace visibility: ${e}`);
+            }
+        };
+
+        const ViewPage = {
+            WINDOWS: 0,
+            APPS: 1,
+            SEARCH: 2
+        };
+
+        this._ensureOverviewConnections();
+        this._attachOverviewControls();
+        this._setAppDisplayLayout();
+        this._onOverviewReady();
+        this._startOverviewReadyPoll();
+
+        // Reclaim the space GNOME reserves for the "workspace preview"
+        this._installAppDisplayBoxOverride = () => {
+            const controls = this._overviewControls || this._getOverviewControls();
+            if (!controls || !controls.layout_manager || this._appDisplayBoxOverrideInstalled) {
+                return false;
+            }
+
+            const layoutManagerProto = Object.getPrototypeOf(controls.layout_manager);
+            this._appDisplayBoxOverrideInstalled = true;
+
+            this._injectionManager.overrideMethod(layoutManagerProto, '_getAppDisplayBoxForState', originalFn => function(state, box, searchHeight, dashHeight, workspacesBox, spacing) {
+                if (extension._settings.get_boolean('show-workspaces')) {
+                    return originalFn.call(this, state, box, searchHeight, dashHeight, workspacesBox, spacing);
+                }
+
+                // Same shape as the stock method, but treat the reserved
+                // workspace-preview height as 0 so the app grid gets that
+                // space back.
+                const [width, height] = box.get_size();
+                const {
+                    y1: startY
+                } = this._workAreaBox;
+                const appDisplayBox = new Clutter.ActorBox();
+
+                switch (state) {
+                    case OverviewControls.ControlsState.HIDDEN:
+                    case OverviewControls.ControlsState.WINDOW_PICKER:
+                        appDisplayBox.set_origin(0, box.y2);
+                        break;
+                    case OverviewControls.ControlsState.APP_GRID:
+                        appDisplayBox.set_origin(0, startY + searchHeight + spacing);
+                        break;
+                }
+
+                appDisplayBox.set_size(width,
+                    height - searchHeight - spacing - dashHeight - spacing);
+
+                return appDisplayBox;
+            });
+
+            return true;
+        };
+
+        this._installAppDisplayBoxOverride();
+
+        this._injectionManager.overrideMethod(overviewControlsProto, '_setVisibility', originalFn => function() {
+            if (!extension._settings.get_boolean('show-workspaces')) {
+                const activePage = this._searchController.searchActive ? ViewPage.SEARCH :
+                    (this._appDisplay.visible ? ViewPage.APPS : ViewPage.WINDOWS);
+                const dashVisible = activePage == ViewPage.WINDOWS || activePage == ViewPage.APPS;
+                const thumbnailsVisible = false;
+
+                if (dashVisible) {
+                    this._dashSlider.slideIn();
+                } else {
+                    this._dashSlider.slideOut();
+                }
+
+                if (thumbnailsVisible) {
+                    this._thumbnailsSlider.slideIn();
+                } else {
+                    this._thumbnailsSlider.slideOut();
+                }
+
+                if (this._dashSpacer) {
+                    this._dashSpacer.visible = activePage == ViewPage.WINDOWS;
+                }
+
+                return;
+            }
+
+            originalFn.call(this);
+        });
+
+        // Add the vertical app display to the overview when controls are ready
+        this._attachOverviewControls();
+        this._ensureOverviewConnections();
 
         // Steal the layout of the original app display
         this._overviewLayoutManager._appDisplay = this._vertAppDisplay;
+
+        // Now that controls are set up, connect the settings signal and apply initial state
+        this._settingsSignal = this._settings.connect('changed::show-workspaces', () => this._updateWorkspacesVisibility());
+        this._updateWorkspacesVisibility();
 
         this._injectionManager.overrideMethod(overviewControlsProto, '_updateAppDisplayVisibility', () => function(params = null) {
             if (!params) {
@@ -124,8 +284,7 @@ export default class VerticalAppGridExtension extends Extension {
                 global.stage.set_key_focus(extension._vertAppDisplay);
             }
 
-            // Disable drag and drop on the original app grid to prevent internal
-            // errors when rearranging app icons in the dash
+            // Disable drag and drop on the original app grid to prevent internal errors when rearranging app icons in the dash
             extension._overviewControls.appDisplay._disconnectDnD();
         });
 
@@ -175,6 +334,15 @@ export default class VerticalAppGridExtension extends Extension {
             } catch (e) {}
             this._settingsSignal = null;
         }
+
+        if (this._overviewShowingId && Main.overview && Main.overview.disconnect) {
+            try {
+                Main.overview.disconnect(this._overviewShowingId);
+            } catch (e) {}
+            this._overviewShowingId = null;
+        }
+
+        this._stopOverviewReadyPoll();
 
         // Restore workspace visibility when disabling
         try {
