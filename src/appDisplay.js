@@ -33,19 +33,19 @@ const CATEGORY_ICONS = {
     AudioVideo: 'multimedia-symbolic',
     Audio: 'audio-x-generic-symbolic',
     Video: 'video-x-generic-symbolic',
-    Graphics: 'applications-graphics-symbolic',
-    Translation: 'lang-typedef-symbolic',
-    WebDevelopment: 'applications-internet-symbolic',
+    Graphics: 'graphics-symbolic',
+    Translation: 'emblem-translate-symbolic',
+    WebDevelopment: 'internet-web-browser-symbolic',
     PackageManager: 'package-x-generic-symbolic',
     Ebook: 'accessories-text-editor-symbolic',
     HardwareSettings: 'computer-symbolic',
-    Finance: 'bank-symbolic',
+    Finance: 'wallet-symbolic',
     Backup: 'document-save-symbolic',
     Security: 'security-high-symbolic',
     Chat: 'mail-message-new-symbolic',
-    Fonts: 'font-x-generic-symbolic',
+    Fonts: 'font-panel-symbolic',
     Education: 'accessories-calculator-symbolic',
-    Game: 'applications-games-symbolic',
+    Game: 'gamepad-symbolic',
     Utility: 'applications-utilities-symbolic',
     Accessories: 'applications-accessories-symbolic',
     System: 'computer-symbolic',
@@ -146,6 +146,7 @@ export const VerticalAppDisplay = GObject.registerClass(
             // Reset scroll when the overview is hidden
             this._overview.connectObject('hidden', () => {
                 this._scrollView.scrollTo(0, false);
+                this._cancelDrag();
             }, this);
 
             // Update layout when settings change
@@ -720,6 +721,8 @@ export const VerticalAppDisplay = GObject.registerClass(
         _redisplay() {
             this._animateRedisplay(() => {
                 this._redisplayLater = this._laters.add(Meta.LaterType.IDLE, () => {
+                    this._cancelDrag();
+
                     this._favoritesView.destroy_all_children();
                     this._mainView.destroy_all_children();
 
@@ -759,6 +762,8 @@ export const VerticalAppDisplay = GObject.registerClass(
             const spacing = this._settings.get_int('icon-spacing');
 
             // Fixed gap above every section after the first one. Kept independent
+            // of icon-spacing since multi-line app icon labels can run tall
+            // enough to butt up against the next section's separator line.
             const sectionGap = 40;
 
             // Original favorites label (non-category mode)
@@ -1080,6 +1085,66 @@ export const VerticalAppDisplay = GObject.registerClass(
             } catch (e) {}
         }
 
+        _cancelPendingDrag() {
+            if (this._pendingMotionId) {
+                try {
+                    global.stage.disconnect(this._pendingMotionId);
+                } catch (e) {}
+                this._pendingMotionId = null;
+            }
+            if (this._pendingReleaseId) {
+                try {
+                    global.stage.disconnect(this._pendingReleaseId);
+                } catch (e) {}
+                this._pendingReleaseId = null;
+            }
+        }
+
+        _cancelActiveDrag() {
+            if (this._dragMotionHandler) {
+                try {
+                    global.stage.disconnect(this._dragMotionHandler);
+                } catch (e) {}
+                this._dragMotionHandler = null;
+            }
+            if (this._dragStageHandler) {
+                try {
+                    global.stage.disconnect(this._dragStageHandler);
+                } catch (e) {}
+                this._dragStageHandler = null;
+            }
+            if (this._dragGhost) {
+                try {
+                    global.stage.remove_child(this._dragGhost);
+                } catch (e) {}
+                this._dragGhost = null;
+            }
+            if (this._highlightedView) {
+                try {
+                    this._highlightedView.set_style('');
+                } catch (e) {}
+                this._highlightedView = null;
+            }
+            if (this._dragActor) {
+                try {
+                    this._dragActor._dragging = false;
+                } catch (e) {}
+                this._dragActor = null;
+            }
+        }
+
+        // Cancels both a not-yet-started (pending) drag watch and a fully
+        // in-progress drag (ghost clone + its stage listeners). Used whenever
+        // we know for certain no drag should be active - e.g. once the
+        // overview closes, since a launched app can consume the release event
+        // before our stage-level listener ever sees it, otherwise leaving a
+        // dangling motion watch that spawns a stray ghost on the next mouse
+        // move anywhere on screen.
+        _cancelDrag() {
+            this._cancelPendingDrag();
+            this._cancelActiveDrag();
+        }
+
         _attachDragHandlers(appIcon) {
             appIcon.reactive = true;
             appIcon.connect('button-press-event', (actor, event) => {
@@ -1094,18 +1159,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                     const threshold = 8;
 
                     // Clean any pending handlers
-                    if (this._pendingMotionId) {
-                        try {
-                            global.stage.disconnect(this._pendingMotionId);
-                        } catch (e) {}
-                        this._pendingMotionId = null;
-                    }
-                    if (this._pendingReleaseId) {
-                        try {
-                            global.stage.disconnect(this._pendingReleaseId);
-                        } catch (e) {}
-                        this._pendingReleaseId = null;
-                    }
+                    this._cancelPendingDrag();
 
                     // Pending motion handler: wait until pointer moves beyond threshold
                     this._pendingMotionId = global.stage.connect('motion-event', (stage, motionEvent) => {
@@ -1116,14 +1170,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                             const distSq = dx * dx + dy * dy;
                             if (distSq >= threshold * threshold) {
                                 // start actual drag
-                                try {
-                                    global.stage.disconnect(this._pendingMotionId);
-                                } catch (e) {}
-                                this._pendingMotionId = null;
-                                try {
-                                    global.stage.disconnect(this._pendingReleaseId);
-                                } catch (e) {}
-                                this._pendingReleaseId = null;
+                                this._cancelPendingDrag();
                                 this._startDrag(actor);
                             }
                         } catch (e) {}
@@ -1132,23 +1179,16 @@ export const VerticalAppDisplay = GObject.registerClass(
 
                     // If released before threshold, cancel pending drag
                     this._pendingReleaseId = global.stage.connect('button-release-event', (stage, relEvent) => {
-                        try {
-                            if (this._pendingMotionId) {
-                                try {
-                                    global.stage.disconnect(this._pendingMotionId);
-                                } catch (e) {}
-                                this._pendingMotionId = null;
-                            }
-                            if (this._pendingReleaseId) {
-                                try {
-                                    global.stage.disconnect(this._pendingReleaseId);
-                                } catch (e) {}
-                                this._pendingReleaseId = null;
-                            }
-                        } catch (e) {}
+                        this._cancelPendingDrag();
                         return Clutter.EVENT_PROPAGATE;
                     });
                 } catch (e) {}
+                return Clutter.EVENT_PROPAGATE;
+            });
+
+            // Listen directly on the icon itself.
+            appIcon.connect('button-release-event', () => {
+                this._cancelPendingDrag();
                 return Clutter.EVENT_PROPAGATE;
             });
         }
@@ -1218,6 +1258,8 @@ export const VerticalAppDisplay = GObject.registerClass(
             this._parentalControls.disconnectObject(this);
             this._overview.disconnectObject(this);
             this._settings.disconnectObject(this);
+
+            this._cancelDrag();
 
             if (this._redisplayLater) {
                 this._laters.remove(this._redisplayLater);
