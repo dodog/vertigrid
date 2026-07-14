@@ -169,6 +169,18 @@ export const VerticalAppDisplay = GObject.registerClass(
                         return this._updateIconSize();
                 }
             }, this);
+
+            // Clicking empty space in the app grid should hide the overview
+            this.connect('button-release-event', () => {
+                // Don't hide mid drag-and-drop - that release is finalizing
+                // a drop, not a click on empty space.
+                if (this._dragActor) {
+                    return Clutter.EVENT_PROPAGATE;
+                }
+
+                this._overview.hide();
+                return Clutter.EVENT_PROPAGATE;
+            });
         }
 
         _createSectionHeader(text) {
