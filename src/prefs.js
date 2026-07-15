@@ -113,7 +113,7 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
         // Each row's live widgets, so we can read their current values on Save.
         const rows = [];
 
-        const addRow = (name = '', enabled = true, merge = false) => {
+        const addRow = (name = '', enabled = true, merge = false, isDefault = false) => {
             const row = new Gtk.ListBoxRow({
                 activatable: false
             });
@@ -153,12 +153,24 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
             });
             topLine.append(enabledSwitch);
 
-            const removeBtn = new Gtk.Button({
-                icon_name: 'user-trash-symbolic',
-                valign: Gtk.Align.CENTER
-            });
-            removeBtn.add_css_class('flat');
-            topLine.append(removeBtn);
+            let removeBtn = null;
+            if (!isDefault) {
+                removeBtn = new Gtk.Button({
+                    icon_name: 'user-trash-symbolic',
+                    valign: Gtk.Align.CENTER
+                });
+                removeBtn.add_css_class('flat');
+                topLine.append(removeBtn);
+            } else {
+                // Built-in categories can be disabled or merged, but not
+                // removed from the list entirely.
+                const defaultBadge = new Gtk.Label({
+                    label: _('Built-in'),
+                    valign: Gtk.Align.CENTER
+                });
+                defaultBadge.add_css_class('dim-label');
+                topLine.append(defaultBadge);
+            }
 
             // Line 2: merge target
             const bottomLine = new Gtk.Box({
@@ -188,13 +200,15 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
                 }
             });
 
-            removeBtn.connect('clicked', () => {
-                const idx = rows.indexOf(rowEntry);
-                if (idx >= 0) {
-                    rows.splice(idx, 1);
-                }
-                listBox.remove(row);
-            });
+            if (removeBtn) {
+                removeBtn.connect('clicked', () => {
+                    const idx = rows.indexOf(rowEntry);
+                    if (idx >= 0) {
+                        rows.splice(idx, 1);
+                    }
+                    listBox.remove(row);
+                });
+            }
 
             const rowEntry = {
                 nameEntry,
@@ -211,7 +225,7 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
         // Populate from existing setting.
         const existing = this._loadExistingCategories(settings);
         for (const category of existing) {
-            addRow(category.name, category.enabled, category.merge);
+            addRow(category.name, category.enabled, category.merge, category.isDefault);
         }
 
         const addCategoryBtn = new Gtk.Button({
@@ -331,7 +345,8 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
         const merged = DEFAULT_CATEGORIES.map(c => ({
             name: c.name,
             enabled: c.hasOwnProperty('enabled') ? Boolean(c.enabled) : true,
-            merge: (c.merge && c.merge !== false) ? String(c.merge) : false
+            merge: (c.merge && c.merge !== false) ? String(c.merge) : false,
+            isDefault: true
         }));
 
         const raw = this._getSettingsString(settings, 'custom-categories', '[]');
@@ -344,7 +359,8 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
                     .map(c => ({
                         name: String(c.name),
                         enabled: c.hasOwnProperty('enabled') ? Boolean(c.enabled) : true,
-                        merge: (c.merge && c.merge !== false) ? String(c.merge) : false
+                        merge: (c.merge && c.merge !== false) ? String(c.merge) : false,
+                        isDefault: false
                     }));
             }
         } catch (e) {
@@ -357,7 +373,10 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
             const key = category.name.toLowerCase();
             const existingIndex = merged.findIndex(c => c.name.toLowerCase() === key);
             if (existingIndex >= 0) {
-                merged[existingIndex] = category;
+                merged[existingIndex] = {
+                    ...category,
+                    isDefault: true
+                };
             } else {
                 merged.push(category);
             }
