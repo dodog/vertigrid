@@ -19,7 +19,7 @@ import {
 } from 'resource:///org/gnome/shell/ui/overviewControls.js';
 
 import {
-    CATEGORY_ORDER,
+    getCategoryOrder,
     getAppCategory,
     setAppCategory,
     getCategoryOrderMap
@@ -260,7 +260,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                 }
 
                 // Then add category sections
-                for (const category of CATEGORY_ORDER) {
+                for (const category of getCategoryOrder()) {
                     const appIds = appsByCategory[category] || [];
 
                     const label = this._createSectionHeader(_(category));
@@ -464,7 +464,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                 });
             }
 
-            for (const category of CATEGORY_ORDER) {
+            for (const category of getCategoryOrder()) {
                 visibleCategories.push({
                     id: category,
                     label: _(category)
@@ -599,7 +599,7 @@ export const VerticalAppDisplay = GObject.registerClass(
             const syncFavorites = this._settings.get_boolean('show-favorites-in-app-grid');
 
             const appsByCategory = {};
-            for (const cat of CATEGORY_ORDER) {
+            for (const cat of getCategoryOrder()) {
                 appsByCategory[cat] = [];
             }
             appsByCategory['Other'] = [];
