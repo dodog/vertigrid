@@ -1,11 +1,13 @@
 /*
 Category configuration for app grouping
-Set `enabled: false` for categories you want to hide - they will be merged into "Other"
-Set `merge: 'TargetCategory'` to merge this category into another category
-Change the order of categories in the array to change their display order in the grid
+Custom categories are stored in settings under 'custom-categories', so they
+survive extension updates and do not require editing src/categories.js.
 
-Restart GNOME desktop environment to apply changes
-Note: Changes to categories will not take effect until you restart GNOME desktop environment
+Define custom categories as JSON objects with:
+ - name: string
+ - enabled: boolean
+ - merge: string|false
+ - order: optional number
 */
 
 import Gio from 'gi://Gio';
@@ -14,7 +16,7 @@ const _settings = new Gio.Settings({
     schema_id: 'org.gnome.shell.extensions.vertigrid'
 });
 
-export const CATEGORIES = [{
+export const DEFAULT_CATEGORIES = [{
         name: 'Development',
         enabled: true,
         merge: false
@@ -88,24 +90,135 @@ export const CATEGORIES = [{
         name: 'Settings',
         enabled: true,
         merge: false
-    },
+    }
 ];
 
+function _normalizeCategory(category, defaultOrder) {
+    if (!category || typeof category !== 'object') {
+        return null;
+    }
 
-/** ========== 如果你不是开发人员，不要不要修改以下内容 ========== **/
+    const name = category.name ? String(category.name).trim() : '';
+    if (!name) {
+        return null;
+    }
+
+    let enabled = true;
+    if (category.hasOwnProperty('enabled')) {
+        enabled = Boolean(category.enabled);
+    }
+
+    let merge = false;
+    if (category.hasOwnProperty('merge')) {
+        if (category.merge === false || category.merge === null) {
+            merge = false;
+        } else {
+            merge = String(category.merge).trim();
+            if (merge === '') {
+                merge = false;
+            }
+        }
+    }
+
+    const orderValue = Number(category.order);
+    const order = Number.isFinite(orderValue) ? orderValue : null;
+
+    return {
+        name,
+        enabled,
+        merge,
+        order,
+        _defaultOrder: defaultOrder
+    };
+}
+
+function _getSettingsString(key, fallback = '') {
+    try {
+        return _settings.get_string(key) || fallback;
+    } catch (e) {
+        log(`vertigrid: Failed to read ${key}: ${e}`);
+        return fallback;
+    }
+}
+
+function _getSettingsStrv(key, fallback = []) {
+    try {
+        return _settings.get_strv(key) || fallback;
+    } catch (e) {
+        log(`vertigrid: Failed to read ${key}: ${e}`);
+        return fallback;
+    }
+}
+
+function _loadCustomCategories() {
+    const raw = _getSettingsString('custom-categories', '[]');
+    try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+
+        return parsed
+            .map((category, index) => _normalizeCategory(category, DEFAULT_CATEGORIES.length + index))
+            .filter(Boolean);
+    } catch (e) {
+        log(`vertigrid: Failed to parse custom categories: ${e}`);
+        return [];
+    }
+}
+
+function _categoryNamesEqual(a, b) {
+    return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+}
+
+export function getCategories() {
+    const categories = DEFAULT_CATEGORIES.map((category, index) => ({
+        ...category,
+        order: null,
+        _defaultOrder: index
+    }));
+
+    const customCategories = _loadCustomCategories();
+    for (const customCategory of customCategories) {
+        const existingIndex = categories.findIndex(category => _categoryNamesEqual(category.name, customCategory.name));
+        if (existingIndex >= 0) {
+            categories[existingIndex] = {
+                ...categories[existingIndex],
+                ...customCategory
+            };
+        } else {
+            categories.push(customCategory);
+        }
+    }
+
+    categories.sort((a, b) => {
+        const aOrder = Number.isFinite(a.order) ? a.order : a._defaultOrder;
+        const bOrder = Number.isFinite(b.order) ? b.order : b._defaultOrder;
+        return aOrder - bOrder;
+    });
+
+    return categories;
+}
+
+export function getCategoryOrder() {
+    return getCategories()
+        .filter(cat => cat.enabled && !cat.merge)
+        .map(cat => cat.name);
+}
+
+export function getAllCategories() {
+    return [...getCategories().map(cat => cat.name), 'Other'];
+}
+
+
 /** ========== DO NOT MODIFY THE FOLLOWING UNLESS YOU ARE A DEVELOPER ========== **/
 
-export const CATEGORY_ORDER = CATEGORIES
-    .filter(cat => cat.enabled && !cat.merge)
-    .map(cat => cat.name);
+export const CATEGORY_ORDER = getCategoryOrder();
 
-export const ALL_CATEGORIES = [
-    ...CATEGORIES.map(cat => cat.name),
-    'Other',
-];
+export const ALL_CATEGORIES = getAllCategories();
 
 function _loadOverrides() {
-    const arr = _settings.get_strv('app-category-overrides') || [];
+    const arr = _getSettingsStrv('app-category-overrides', []);
     // Map of appId -> { category: string, index: number|null }
     const map = new Map();
     for (const entry of arr) {
@@ -201,8 +314,13 @@ export function getAppCategory(appInfo) {
         if (!categories)
             return 'Other';
 
-        for (const catConfig of CATEGORIES) {
-            if (categories.includes(catConfig.name)) {
+        const currentCategories = getCategories();
+        const categoryList = Array.isArray(categories) ?
+            categories.map(c => String(c).trim()).filter(Boolean) :
+            categories.split(';').map(c => String(c).trim()).filter(Boolean);
+
+        for (const catConfig of currentCategories) {
+            if (categoryList.some(cat => _categoryNamesEqual(cat, catConfig.name))) {
                 if (!catConfig.enabled) {
                     return 'Other';
                 }
@@ -213,11 +331,13 @@ export function getAppCategory(appInfo) {
             }
         }
 
-        const categoryList = categories.split(';');
-        for (const cat of categoryList) {
-            const trimmed = cat.trim();
-            if (trimmed && ALL_CATEGORIES.includes(trimmed)) {
-                const catConfig = CATEGORIES.find(c => c.name === trimmed);
+        const allCategories = getAllCategories();
+        for (const trimmed of categoryList) {
+            if (!trimmed) {
+                continue;
+            }
+            if (allCategories.some(cat => _categoryNamesEqual(cat, trimmed))) {
+                const catConfig = currentCategories.find(c => _categoryNamesEqual(c.name, trimmed));
                 if (catConfig) {
                     if (!catConfig.enabled) {
                         return 'Other';
