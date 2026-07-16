@@ -59,6 +59,11 @@ const ICON_OPACITY_DEFAULT = 140;
 const ICON_OPACITY_HOVER = 217;
 const ICON_OPACITY_ACTIVE = 255;
 
+// Left nav stays a fixed width at all times; only the category labels
+// fade in/out depending on whether the pointer is over the nav.
+const NAV_WIDTH = 220;
+const NAV_TRANSITION_DURATION = 200;
+
 function easeOutCubic(t) {
     return (--t) * t * t + 1;
 }
@@ -100,9 +105,14 @@ export const VerticalAppDisplay = GObject.registerClass(
                 vertical: true,
                 x_expand: false,
                 y_expand: true,
+                reactive: true,
                 style_class: 'category-nav-box',
-                style: 'margin-right: 8px; padding: 8px 0 8px 8px; width: 220px;'
+                style: `margin-right: 8px; padding: 8px 0 8px 8px; width: ${NAV_WIDTH}px; overflow: hidden;`
             });
+
+            // Labels start hidden; shown on hover, see _setNavCollapsed().
+            // Width never changes, only label opacity.
+            this._navCollapsed = true;
 
             this._mainBox = new St.BoxLayout({
                 vertical: false,
@@ -150,7 +160,21 @@ export const VerticalAppDisplay = GObject.registerClass(
             this._overview.connectObject('hidden', () => {
                 this._scrollView.scrollTo(0, false);
                 this._cancelDrag();
+                this._setNavCollapsed(true, false);
             }, this);
+
+            // Expand the whole nav (labels + width) while the pointer is
+            // anywhere over it, collapse back to icon-only once it leaves.
+            // These crossing events bubble to _navBox as an ancestor, so this
+            // fires once for the whole container regardless of whether the
+            // pointer lands on padding or on a button - independent from
+            // each button's own enter/leave used for icon opacity below.
+            this._navBox.connect('enter-event', () => {
+                this._setNavCollapsed(false);
+            });
+            this._navBox.connect('leave-event', () => {
+                this._setNavCollapsed(true);
+            });
 
             // Update layout when settings change
             this._settings.connectObject('changed', (_, key) => {
@@ -463,7 +487,7 @@ export const VerticalAppDisplay = GObject.registerClass(
             this._bottomSpacer = new St.Widget({
                 x_expand: true
             });
-            this._bottomSpacer.set_height(120);
+            this._bottomSpacer.set_height(320);
             this._scrollView.add_child(this._bottomSpacer);
         }
 
@@ -537,7 +561,13 @@ export const VerticalAppDisplay = GObject.registerClass(
                 button.add_child(categoryRow);
 
                 button._icon = icon;
+                button._label = label;
                 button._isHovered = false;
+
+                // Apply the current expanded/collapsed state immediately -
+                // no animation - so a redisplay (settings change, app
+                // install, etc.) doesn't flash labels visible for a frame.
+                label.set_opacity(this._navCollapsed ? 0 : 255);
 
                 button.connect('clicked', () => {
                     this._scrollToCategory(item.id);
@@ -611,6 +641,37 @@ export const VerticalAppDisplay = GObject.registerClass(
 
             this._scrollView.scrollToChild(target, 'top');
             this._setActiveCategory(category);
+        }
+
+        // Fades every button's label opacity to show/hide category names on
+        // hover of the whole nav. Width is fixed and never touched here -
+        // independent of per-button hover, which only ever touches icon
+        // opacity (see _updateCategoryIconOpacity).
+        _setNavCollapsed(collapsed, animate = true) {
+            if (this._navCollapsed === collapsed) {
+                return;
+            }
+
+            this._navCollapsed = collapsed;
+
+            const labelOpacity = collapsed ? 0 : 255;
+
+            this._navItems.forEach(button => {
+                if (!button._label) {
+                    return;
+                }
+
+                if (animate) {
+                    button._label.ease({
+                        opacity: labelOpacity,
+                        duration: NAV_TRANSITION_DURATION,
+                        mode: Clutter.AnimationMode.EASE_OUT_QUAD
+                    });
+                } else {
+                    button._label.remove_transition('opacity');
+                    button._label.set_opacity(labelOpacity);
+                }
+            });
         }
 
         // Walks the visible categories top-to-bottom and marks the last one
