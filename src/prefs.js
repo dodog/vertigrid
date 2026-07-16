@@ -138,8 +138,13 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
             const nameEntry = new Gtk.Entry({
                 hexpand: true,
                 placeholder_text: _('Category name (e.g. Authy)'),
-                text: name
+                text: name,
+                editable: !isDefault,
+                can_focus: !isDefault
             });
+            if (isDefault) {
+                nameEntry.add_css_class('dim-label');
+            }
             topLine.append(nameEntry);
 
             const enabledLabel = new Gtk.Label({
@@ -264,6 +269,7 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
                 try {
                     settings.set_string('custom-categories', JSON.stringify(categories));
                     dialog.destroy();
+                    this._showRestartNotice(window);
                 } catch (e) {
                     errorLabel.set_text(_('Failed to save custom categories: ') + e.message);
                     errorLabel.visible = true;
@@ -287,6 +293,50 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
         });
 
         dialog.present();
+    }
+
+    _showRestartNotice(window) {
+        const noticeDialog = new Gtk.Dialog({
+            transient_for: window,
+            modal: true,
+            title: _('Custom Categories Saved'),
+            default_width: 420,
+            use_header_bar: true
+        });
+
+        noticeDialog.add_button(_('OK'), Gtk.ResponseType.OK);
+
+        const contentArea = noticeDialog.get_content_area();
+        const box = new Gtk.Box({
+            orientation: Gtk.Orientation.VERTICAL,
+            spacing: 10,
+            margin_top: 16,
+            margin_bottom: 16,
+            margin_start: 16,
+            margin_end: 16
+        });
+        contentArea.append(box);
+
+        const icon = new Gtk.Image({
+            icon_name: 'dialog-information-symbolic',
+            pixel_size: 32,
+            halign: Gtk.Align.CENTER
+        });
+        box.append(icon);
+
+        const label = new Gtk.Label({
+            xalign: 0.5,
+            wrap: true,
+            justify: Gtk.Justification.CENTER,
+            label: _('Your custom category settings have been saved.\n\nYou need to log out and log back in for these changes to take effect.')
+        });
+        box.append(label);
+
+        noticeDialog.connect('response', () => {
+            noticeDialog.destroy();
+        });
+
+        noticeDialog.present();
     }
 
     _collectCategories(rows) {
