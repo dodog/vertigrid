@@ -52,16 +52,6 @@ export const DEFAULT_CATEGORIES = [{
         merge: false
     },
     {
-        name: 'Security',
-        enabled: true,
-        merge: false
-    },
-    {
-        name: 'Chat',
-        enabled: true,
-        merge: false
-    },
-    {
         name: 'Education',
         enabled: true,
         merge: false
@@ -211,6 +201,7 @@ export function getAllCategories() {
 }
 
 
+/** ========== 如果你不是开发人员，不要不要修改以下内容 ========== **/
 /** ========== DO NOT MODIFY THE FOLLOWING UNLESS YOU ARE A DEVELOPER ========== **/
 
 export const CATEGORY_ORDER = getCategoryOrder();
@@ -300,12 +291,30 @@ export function getCategoryOrderMap() {
  */
 export function getAppCategory(appInfo) {
     try {
-        // Check for user overrides first
+        const currentCategories = getCategories();
+
+        // Check for user overrides first (e.g. drag-and-drop into a
+        // category). The override still needs to be resolved through the
+        // enabled/merge config below — an override pointing at a disabled
+        // or merged category must not bypass that logic.
         try {
             const id = appInfo.get_id();
             const overrides = _loadOverrides();
             if (overrides.has(id)) {
-                return overrides.get(id).category;
+                const overrideCategory = overrides.get(id).category;
+                const catConfig = currentCategories.find(c => _categoryNamesEqual(c.name, overrideCategory));
+                if (catConfig) {
+                    if (!catConfig.enabled) {
+                        return 'Other';
+                    }
+                    if (catConfig.merge) {
+                        return catConfig.merge;
+                    }
+                    return catConfig.name;
+                }
+                // No config found for this category (e.g. it was removed
+                // entirely) — fall back to the override value as-is.
+                return overrideCategory;
             }
         } catch (e) {
             // ignore if appInfo doesn't have get_id
@@ -314,40 +323,35 @@ export function getAppCategory(appInfo) {
         if (!categories)
             return 'Other';
 
-        const currentCategories = getCategories();
         const categoryList = Array.isArray(categories) ?
             categories.map(c => String(c).trim()).filter(Boolean) :
             categories.split(';').map(c => String(c).trim()).filter(Boolean);
 
-        for (const catConfig of currentCategories) {
-            if (categoryList.some(cat => _categoryNamesEqual(cat, catConfig.name))) {
-                if (!catConfig.enabled) {
-                    return 'Other';
-                }
-                if (catConfig.merge) {
-                    return catConfig.merge;
-                }
-                return catConfig.name;
-            }
-        }
-
-        const allCategories = getAllCategories();
+        // Walk the app's OWN category list (in the order the .desktop file
+        // lists them) rather than our config list. Apps commonly carry
+        // several categories at once (e.g. "AudioVideo;Audio;Player;"), and
+        // a disabled catch-all like AudioVideo should not block a more
+        // specific, enabled/merged category like Audio from matching just
+        // because it happens to come first in our config list.
         for (const trimmed of categoryList) {
             if (!trimmed) {
                 continue;
             }
-            if (allCategories.some(cat => _categoryNamesEqual(cat, trimmed))) {
-                const catConfig = currentCategories.find(c => _categoryNamesEqual(c.name, trimmed));
-                if (catConfig) {
-                    if (!catConfig.enabled) {
-                        return 'Other';
-                    }
-                    if (catConfig.merge) {
-                        return catConfig.merge;
-                    }
-                }
-                return trimmed;
+            const catConfig = currentCategories.find(c => _categoryNamesEqual(c.name, trimmed));
+            if (!catConfig) {
+                // Unknown category name to us, keep checking the app's
+                // other listed categories.
+                continue;
             }
+            if (!catConfig.enabled) {
+                // This particular category is disabled; the app might
+                // still match a different, enabled category it also lists.
+                continue;
+            }
+            if (catConfig.merge) {
+                return catConfig.merge;
+            }
+            return catConfig.name;
         }
     } catch (e) {
         console.error('Error getting app category:', e);
