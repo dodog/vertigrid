@@ -116,6 +116,7 @@ export const VerticalAppDisplay = GObject.registerClass(
 
             this._navItems = [];
             this._navButtons = {};
+            this._categoryOrder = [];
             this._bottomSpacer = null;
 
             this._appSystem = Shell.AppSystem.get_default();
@@ -170,7 +171,12 @@ export const VerticalAppDisplay = GObject.registerClass(
                 }
             }, this);
 
-            // Clicking empty space in the app grid should hide the overview
+            // Clicking empty space in the app grid should hide the overview,
+            // same as clicking the background elsewhere. App icons and nav
+            // buttons already consume/stop their own button-release-event
+            // once they've handled a real click, so this only ever fires
+            // when the release event bubbles all the way up unclaimed -
+            // i.e. a genuine click on empty space, not on any widget.
             this.connect('button-release-event', () => {
                 // Don't hide mid drag-and-drop - that release is finalizing
                 // a drop, not a click on empty space.
@@ -180,6 +186,14 @@ export const VerticalAppDisplay = GObject.registerClass(
 
                 this._overview.hide();
                 return Clutter.EVENT_PROPAGATE;
+            });
+
+            // Keep the left-nav active-category highlight in sync with
+            // whatever section is currently at the top of the scroll view -
+            // covers wheel scrolling, keyboard paging, and programmatic
+            // scrolls (e.g. clicking a nav button) all through one signal.
+            this._scrollValueHandler = this._scrollView.vadjustment.connect('notify::value', () => {
+                this._updateActiveCategoryFromScroll();
             });
         }
 
@@ -327,6 +341,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                 this._navBox.show();
             } else {
                 this._navBox.hide();
+                this._categoryOrder = [];
                 // Original mode: Favorites and All Apps
                 // Show original labels and views
                 this._favoritesLabel.show();
@@ -478,6 +493,10 @@ export const VerticalAppDisplay = GObject.registerClass(
                 });
             }
 
+            // Record top-to-bottom order so the scroll watcher knows which
+            // section follows which when deciding what's "active".
+            this._categoryOrder = visibleCategories.map(item => item.id);
+
             const fontSize = this._settings.get_int('category-font-size');
 
             visibleCategories.forEach((item, index) => {
@@ -552,6 +571,7 @@ export const VerticalAppDisplay = GObject.registerClass(
             this._navItems = [];
             this._navButtons = {};
             this._activeCategory = null;
+            this._categoryOrder = [];
         }
 
         _getCategoryButtonStyle() {
@@ -591,6 +611,43 @@ export const VerticalAppDisplay = GObject.registerClass(
 
             this._scrollView.scrollToChild(target, 'top');
             this._setActiveCategory(category);
+        }
+
+        // Walks the visible categories top-to-bottom and marks the last one
+        // whose section header has scrolled to (or past) the top of the
+        // viewport as active. Runs on every vadjustment 'notify::value', so
+        // it stays correct across wheel scrolling, keyboard paging, and
+        // programmatic scrolls (e.g. clicking a nav button) alike.
+        _updateActiveCategoryFromScroll() {
+            if (!this._categoryOrder || this._categoryOrder.length === 0)
+                return;
+
+            const scrollValue = this._scrollView.vadjustment.value;
+
+            // Small offset so a section becomes "active" right as its header
+            // reaches the top of the viewport (matches the topPadding used
+            // by scrollToChild's 'top' alignment), rather than waiting for
+            // it to fully clear the edge.
+            const threshold = scrollValue + 20;
+
+            let active = this._categoryOrder[0];
+
+            for (const category of this._categoryOrder) {
+                const label = this._categoryLabels[category];
+                if (!label || !label.visible)
+                    continue;
+
+                const y = this._scrollView.getChildY(label);
+                if (y <= threshold) {
+                    active = category;
+                } else {
+                    break;
+                }
+            }
+
+            if (active !== this._activeCategory) {
+                this._setActiveCategory(active);
+            }
         }
 
         _loadAppsByCategory() {
@@ -793,7 +850,7 @@ export const VerticalAppDisplay = GObject.registerClass(
             // Fixed gap above every section after the first one. Kept independent
             // of icon-spacing since multi-line app icon labels can run tall
             // enough to butt up against the next section's separator line.
-            const sectionGap = 50;
+            const sectionGap = 40;
 
             // Original favorites label (non-category mode)
             if (this._favoritesLabel && this._favoritesLabel.visible) {
@@ -1220,7 +1277,10 @@ export const VerticalAppDisplay = GObject.registerClass(
         _attachDragHandlers(appIcon) {
             this._showFullAppLabel(appIcon);
 
-            // Re-apply override every time hover changes
+            // AppIcon's own built-in hover handling reverts the label back to
+            // a single ellipsized line once the pointer leaves. Re-apply our
+            // override every time hover changes so it always wins, regardless
+            // of what the built-in handler just did.
             appIcon.connect('notify::hover', () => {
                 this._showFullAppLabel(appIcon);
             });
@@ -1265,7 +1325,12 @@ export const VerticalAppDisplay = GObject.registerClass(
                 return Clutter.EVENT_PROPAGATE;
             });
 
-            // Listen directly on the icon itself.
+            // Belt-and-suspenders: also listen directly on the icon itself.
+            // A normal click (which launches the app) always fires this on
+            // the icon before the icon's own class handler runs, so it's a
+            // reliable way to cancel the pending-drag watch even in cases
+            // where the click ends up consuming the event before it reaches
+            // the global.stage listener above.
             appIcon.connect('button-release-event', () => {
                 this._cancelPendingDrag();
                 return Clutter.EVENT_PROPAGATE;
@@ -1338,6 +1403,13 @@ export const VerticalAppDisplay = GObject.registerClass(
             this._overview.disconnectObject(this);
             this._settings.disconnectObject(this);
 
+            if (this._scrollValueHandler) {
+                try {
+                    this._scrollView.vadjustment.disconnect(this._scrollValueHandler);
+                } catch (e) {}
+                this._scrollValueHandler = null;
+            }
+
             this._cancelDrag();
 
             if (this._redisplayLater) {
@@ -1391,16 +1463,27 @@ const VerticalScrollView = GObject.registerClass(
             return this._scrollBox;
         }
 
-        scrollToChild(child, align = 'center') {
+        // Returns the child's vertical offset from the top of the scroll
+        // view's content, in the same coordinate space as vadjustment.value.
+        // Shared by scrollToChild() and the active-category scroll watcher
+        // so both agree on exactly where a given section sits.
+        getChildY(child) {
             const childBox = child.get_allocation_box();
-
-            // Get the child's vertical position inside the scroll view
             let actor = child;
             let childY = childBox.y1;
 
             while ((actor = actor.get_parent()) !== this) {
+                if (!actor)
+                    return childY;
                 childY += actor.get_allocation_box().y1;
             }
+
+            return childY;
+        }
+
+        scrollToChild(child, align = 'center') {
+            const childY = this.getChildY(child);
+            const childBox = child.get_allocation_box();
 
             const adjustment = this.vadjustment;
 
