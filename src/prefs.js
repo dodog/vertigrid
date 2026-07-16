@@ -137,7 +137,7 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
 
             const nameEntry = new Gtk.Entry({
                 hexpand: true,
-                placeholder_text: _('Category name (e.g. Authy)'),
+                placeholder_text: _('Category name (e.g. Fonts)'),
                 text: isDefault ? _(name) : name,
                 editable: !isDefault,
                 can_focus: !isDefault
