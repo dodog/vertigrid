@@ -119,25 +119,12 @@ export default class VerticalAppGridExtension extends Extension {
 
                 let hidden = false;
 
+                // Rely on show()/hide() alone 
                 try {
                     if (show) {
                         workspaceDisplay.show();
-                        workspaceDisplay.visible = true;
-                        workspaceDisplay.reactive = true;
-                        workspaceDisplay.sensitive = true;
-                        workspaceDisplay.opacity = 255;
-                        if (workspaceDisplay._swipeTracker) {
-                            workspaceDisplay._swipeTracker.enabled = true;
-                        }
                     } else {
                         workspaceDisplay.hide();
-                        workspaceDisplay.visible = false;
-                        workspaceDisplay.reactive = false;
-                        workspaceDisplay.sensitive = false;
-                        workspaceDisplay.opacity = 0;
-                        if (workspaceDisplay._swipeTracker) {
-                            workspaceDisplay._swipeTracker.enabled = false;
-                        }
                     }
                     hidden = true;
                 } catch (e) {
@@ -253,13 +240,6 @@ export default class VerticalAppGridExtension extends Extension {
             originalFn.call(this);
         });
 
-        // Add the vertical app display to the overview when controls are ready
-        this._attachOverviewControls();
-        this._ensureOverviewConnections();
-
-        // Steal the layout of the original app display
-        this._overviewLayoutManager._appDisplay = this._vertAppDisplay;
-
         // Now that controls are set up, connect the settings signal and apply initial state
         this._settingsSignal = this._settings.connect('changed::show-workspaces', () => this._updateWorkspacesVisibility());
         this._updateWorkspacesVisibility();
@@ -318,14 +298,30 @@ export default class VerticalAppGridExtension extends Extension {
     }
 
     disable() {
-        this._overviewLayoutManager._appDisplay = this._overviewControls.appDisplay;
+        try {
+            if (this._overviewLayoutManager && this._overviewControls) {
+                this._overviewLayoutManager._appDisplay = this._overviewControls.appDisplay;
+            }
 
-        this._overviewControls.remove_child(this._vertAppDisplay);
-        this._injectionManager.clear();
-        this._vertAppDisplay.destroy();
+            if (this._overviewControls && this._vertAppDisplay) {
+                this._overviewControls.remove_child(this._vertAppDisplay);
+            }
 
-        this._overviewControls.appDisplay._disconnectDnD();
-        this._overviewControls.appDisplay._connectDnD();
+            if (this._injectionManager) {
+                this._injectionManager.clear();
+            }
+
+            if (this._vertAppDisplay) {
+                this._vertAppDisplay.destroy();
+            }
+
+            if (this._overviewControls && this._overviewControls.appDisplay) {
+                this._overviewControls.appDisplay._disconnectDnD();
+                this._overviewControls.appDisplay._connectDnD();
+            }
+        } catch (e) {
+            log(`vertigrid: Error during core teardown: ${e}`);
+        }
 
         // Disconnect settings signal and restore workspace visibility before clearing
         if (this._settingsSignal && this._settings) {
@@ -351,6 +347,13 @@ export default class VerticalAppGridExtension extends Extension {
                 this._updateWorkspacesVisibility();
             }
         } catch (e) {}
+
+        // Reset so a subsequent enable() (GNOME Shell reuses this same
+        // Extension instance across disable()/enable() cycles, it doesn't
+        // create a fresh one) can reinstall the workspace-preview-box
+        // override instead of silently skipping it because this flag was
+        // still true from the previous enable().
+        this._appDisplayBoxOverrideInstalled = false;
 
         this._settings = null;
         this._vertAppDisplay = null;

@@ -150,8 +150,12 @@ export const VerticalAppDisplay = GObject.registerClass(
         }
 
         _connectSignals() {
-            // Redisplay the app grid when an app was installed or removed
+            // Redisplay the app grid when an app was installed or removed.
             this._appSystem.connectObject('installed-changed', () => {
+                const newIds = this._getInstalledIdsSet();
+                if (this._lastInstalledIds && this._setsEqual(this._lastInstalledIds, newIds)) {
+                    return;
+                }
                 this._redisplay();
             }, this);
 
@@ -257,10 +261,36 @@ export const VerticalAppDisplay = GObject.registerClass(
             return row;
         }
 
+        _getInstalledIdsSet() {
+            const ids = new Set();
+            try {
+                this._appSystem.get_installed().forEach(appInfo => {
+                    try {
+                        ids.add(appInfo.get_id());
+                    } catch (e) {}
+                });
+            } catch (e) {}
+            return ids;
+        }
+
+        _setsEqual(a, b) {
+            if (a.size !== b.size) {
+                return false;
+            }
+            for (const id of a) {
+                if (!b.has(id)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         _addAppIcons() {
             const iconSize = this._settings.get_int('icon-size');
             const favSection = this._settings.get_boolean('favorites-section');
             const categoryGrouping = this._settings.get_boolean('category-grouping');
+
+            this._lastInstalledIds = this._getInstalledIdsSet();
 
             this._appIcons = [];
             this._categoryLabels = {};
@@ -385,7 +415,6 @@ export const VerticalAppDisplay = GObject.registerClass(
                 // Ensure favorites is at the top by reordering
                 const scrollBox = this._scrollView.get_child();
                 const favLabelIndex = scrollBox.get_children().indexOf(this._favoritesLabel);
-                const favViewIndex = scrollBox.get_children().indexOf(this._favoritesView);
 
                 if (favLabelIndex !== 0) {
                     scrollBox.set_child_at_index(this._favoritesLabel, 0);
@@ -580,17 +609,17 @@ export const VerticalAppDisplay = GObject.registerClass(
                 label.set_opacity(this._navCollapsed ? 0 : 255);
                 button.set_height(this._navCollapsed ? NAV_ITEM_HEIGHT_COLLAPSED : NAV_ITEM_HEIGHT_EXPANDED);
 
-                button.connect('clicked', () => {
+                button._clickedId = button.connect('clicked', () => {
                     this._scrollToCategory(item.id);
                 });
 
                 // Use explicit enter/leave events rather than the St.Button
                 // 'hover' property - reliable regardless of track-hover wiring.
-                button.connect('enter-event', () => {
+                button._enterId = button.connect('enter-event', () => {
                     button._isHovered = true;
                     this._updateCategoryIconOpacity(button);
                 });
-                button.connect('leave-event', () => {
+                button._leaveId = button.connect('leave-event', () => {
                     button._isHovered = false;
                     this._updateCategoryIconOpacity(button);
                 });
@@ -608,11 +637,28 @@ export const VerticalAppDisplay = GObject.registerClass(
         }
 
         _destroyCategoryNav() {
-            this._navItems.forEach(button => button.destroy());
+            // Disconnecting each button's own signals before
+            // destroying it prevents the first; the teardown flag (checked
+            // in _setNavCollapsed) prevents the second.
+            this._navTeardownInProgress = true;
+
+            this._navItems.forEach(button => {
+                try {
+                    if (button._clickedId) button.disconnect(button._clickedId);
+                    if (button._enterId) button.disconnect(button._enterId);
+                    if (button._leaveId) button.disconnect(button._leaveId);
+                } catch (e) {}
+                try {
+                    button.destroy();
+                } catch (e) {}
+            });
+
             this._navItems = [];
             this._navButtons = {};
             this._activeCategory = null;
             this._categoryOrder = [];
+
+            this._navTeardownInProgress = false;
         }
 
         _getCategoryButtonStyle() {
@@ -621,12 +667,12 @@ export const VerticalAppDisplay = GObject.registerClass(
             // Vertical padding here is nominal; actual row height is driven
             // explicitly via set_height() in _setNavCollapsed(). No CSS
             // width here - x_expand: true on the button already makes it
-            // fill navBox's width, and St's CSS engine doesn't support
-            // percentage lengths anyway.
+            // fill navBox's width.
             return 'margin: 1px 0; padding: 4px 8px; border-radius: 12px; text-align: left; border: none; border-bottom: 1px solid rgba(255,255,255,0.12); background-color: transparent; color: rgba(255,255,255,0.92);';
         }
 
         _updateCategoryIconOpacity(button) {
+            if (this._navTeardownInProgress) return;
             if (!button._icon) return;
 
             const isActive = button._categoryId === this._activeCategory;
@@ -639,7 +685,11 @@ export const VerticalAppDisplay = GObject.registerClass(
                 opacity = ICON_OPACITY_HOVER;
             }
 
-            button._icon.set_opacity(opacity);
+            try {
+                button._icon.set_opacity(opacity);
+            } catch (e) {
+                // Actor may have been disposed mid-teardown; nothing to do.
+            }
         }
 
         _setActiveCategory(category) {
@@ -664,18 +714,11 @@ export const VerticalAppDisplay = GObject.registerClass(
         // the whole nav. Width is fixed and never touched here - independent
         // of per-button hover, which only ever touches icon opacity (see
         // _updateCategoryIconOpacity).
-        //
-        // Deliberately NOT using actor.ease({height: ...}): Clutter special-
-        // cases x/y/width/height as "animatable" properties by interpolating
-        // the actor's own allocation directly and skipping the parent
-        // LayoutManager on every frame, so sibling buttons in navBox would
-        // only snap to their new stacked position once some unrelated
-        // relayout happened to fire - the list looked like it jumped instead
-        // of reflowing. Driving it manually with plain set_height() calls
-        // (same after-paint frame-loop pattern as VerticalScrollView's smooth
-        // scroll) uses the normal code path, which queues a full relayout
-        // every frame.
         _setNavCollapsed(collapsed, animate = true) {
+            if (this._navTeardownInProgress) {
+                return;
+            }
+
             if (this._navCollapsed === collapsed) {
                 return;
             }
@@ -712,8 +755,15 @@ export const VerticalAppDisplay = GObject.registerClass(
             // (e.g. a quick in-and-out hover) continue smoothly instead of
             // jumping back to a fixed start value.
             const first = this._navItems[0];
-            const startHeight = first.height;
-            const startOpacity = first._label ? first._label.opacity : targetOpacity;
+            let startHeight, startOpacity;
+            try {
+                startHeight = first.height;
+                startOpacity = first._label ? first._label.opacity : targetOpacity;
+            } catch (e) {
+                // Actor may have been disposed mid-teardown; bail out rather
+                // than crash - the nav will simply skip this animation.
+                return;
+            }
 
             const deltaHeight = targetHeight - startHeight;
             const deltaOpacity = targetOpacity - startOpacity;
@@ -839,7 +889,18 @@ export const VerticalAppDisplay = GObject.registerClass(
                     }
 
                     const category = getAppCategory(appInfo);
-                    appsByCategory[category].push(appInfo);
+
+                    // Defensive guard: getAppCategory() should only ever
+                    // return a name that's a key here (a category from
+                    // getCategoryOrder(), or 'Other'), but if a stale
+                    // override or misconfigured merge target somehow slips
+                    // through, fall back to 'Other' instead of crashing on
+                    // .push() into an undefined bucket.
+                    if (appsByCategory[category]) {
+                        appsByCategory[category].push(appInfo);
+                    } else {
+                        appsByCategory['Other'].push(appInfo);
+                    }
                 } catch {}
             });
 
@@ -967,31 +1028,37 @@ export const VerticalAppDisplay = GObject.registerClass(
         _redisplay() {
             this._animateRedisplay(() => {
                 this._redisplayLater = this._laters.add(Meta.LaterType.IDLE, () => {
-                    this._cancelDrag();
-                    this._cancelNavAnimation();
 
-                    this._favoritesView.destroy_all_children();
-                    this._mainView.destroy_all_children();
+                    try {
+                        this._cancelDrag();
+                        this._cancelNavAnimation();
 
-                    // Clean up category views if they exist
-                    for (const category in this._categoryLabels) {
-                        if (this._categoryLabels[category]) {
-                            this._categoryLabels[category].destroy();
-                            this._categoryLabels[category] = null;
+                        this._favoritesView.destroy_all_children();
+                        this._mainView.destroy_all_children();
+
+                        // Clean up category views if they exist
+                        for (const category in this._categoryLabels) {
+                            if (this._categoryLabels[category]) {
+                                this._categoryLabels[category].destroy();
+                                this._categoryLabels[category] = null;
+                            }
                         }
-                    }
-                    for (const category in this._categoryViews) {
-                        if (this._categoryViews[category]) {
-                            this._categoryViews[category].destroy();
-                            this._categoryViews[category] = null;
+                        for (const category in this._categoryViews) {
+                            if (this._categoryViews[category]) {
+                                this._categoryViews[category].destroy();
+                                this._categoryViews[category] = null;
+                            }
                         }
-                    }
-                    this._categoryLabels = {};
-                    this._categoryViews = {};
+                        this._categoryLabels = {};
+                        this._categoryViews = {};
 
-                    this._addAppIcons();
-                    this._updateLabelMargins();
-                    this._animateRedisplay();
+                        this._addAppIcons();
+                        this._updateLabelMargins();
+                    } catch (e) {
+                        logError(e, 'vertigrid: redisplay failed');
+                    } finally {
+                        this._animateRedisplay();
+                    }
                 });
             });
         }
@@ -1011,7 +1078,7 @@ export const VerticalAppDisplay = GObject.registerClass(
             // Fixed gap above every section after the first one. Kept independent
             // of icon-spacing since multi-line app icon labels can run tall
             // enough to butt up against the next section's separator line.
-            const sectionGap = 40;
+            const sectionGap = 50;
 
             // Original favorites label (non-category mode)
             if (this._favoritesLabel && this._favoritesLabel.visible) {
@@ -1194,140 +1261,148 @@ export const VerticalAppDisplay = GObject.registerClass(
                     this._dragGhost.raise_top();
                 } catch (e) {}
 
-                // Connect motion handler
-                if (this._dragMotionHandler) {
+                // Connect a single capture-phase listener for both motion
+                // and release while dragging. 
+                if (this._dragCapturedHandler) {
                     try {
-                        global.stage.disconnect(this._dragMotionHandler);
+                        global.stage.disconnect(this._dragCapturedHandler);
                     } catch (e) {}
-                    this._dragMotionHandler = null;
+                    this._dragCapturedHandler = null;
                 }
 
-                this._dragMotionHandler = global.stage.connect('motion-event', (stage, motionEvent) => {
-                    try {
-                        const [mx, my] = this._getEventCoords(motionEvent);
-                        if (this._dragGhost) {
-                            const [w, h] = [this._dragGhost.get_width(), this._dragGhost.get_height()];
-                            this._dragGhost.set_position(Math.floor(mx - w / 2), Math.floor(my - h / 2));
+                this._dragCapturedHandler = global.stage.connect('captured-event', (stage, event) => {
+                    const eventType = event.type();
+
+                    if (eventType === Clutter.EventType.MOTION) {
+                        if (!this._dragActor) {
+                            return Clutter.EVENT_PROPAGATE;
                         }
-
-                        const target = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, mx, my);
-                        let found = this._findCategoryViewFromActor(target);
-                        if (!found.view) {
-                            found = this._findCategoryViewAtStagePoint(mx, my);
-                        }
-                        const foundView = found.view;
-                        if (foundView !== this._highlightedView) {
-                            try {
-                                if (this._highlightedView) this._highlightedView.set_style('');
-                            } catch (e) {}
-                            this._highlightedView = foundView;
-                            try {
-                                if (this._highlightedView) this._highlightedView.set_style('box-shadow: inset 0 0 0 2px rgba(255,255,255,0.08); background-color: rgba(255,255,255,0.02);');
-                            } catch (e) {}
-                        }
-                    } catch (e) {}
-                    return Clutter.EVENT_PROPAGATE;
-                });
-
-                // Connect stage release handler
-                if (this._dragStageHandler) {
-                    try {
-                        global.stage.disconnect(this._dragStageHandler);
-                    } catch (e) {}
-                    this._dragStageHandler = null;
-                }
-
-                this._dragStageHandler = global.stage.connect('button-release-event', (stage, releaseEvent) => {
-                    try {
-                        if (!this._dragActor) return Clutter.EVENT_PROPAGATE;
-                        const src = this._dragActor;
-                        src._dragging = false;
-                        const [rx, ry] = this._getEventCoords(releaseEvent);
-
-                        const dumpActorPath = actor => {
-                            const path = [];
-                            let current = actor;
-                            while (current) {
-                                const name = current.get_name ? current.get_name() : '<unnamed>';
-                                const type = current.toString ? current.toString() : '<unknown>';
-                                path.push(`${name} (${type})`);
-                                try {
-                                    current = current.get_parent();
-                                } catch (e) {
-                                    current = null;
-                                }
+                        try {
+                            const [mx, my] = this._getEventCoords(event);
+                            if (this._dragGhost) {
+                                const [w, h] = [this._dragGhost.get_width(), this._dragGhost.get_height()];
+                                this._dragGhost.set_position(Math.floor(mx - w / 2), Math.floor(my - h / 2));
                             }
-                            return path.join(' -> ');
-                        };
 
-                        log(`vertigrid: drop release coords=${rx},${ry}`);
-                        const targetActor = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, rx, ry);
-                        log(`vertigrid: hit targetActor=${targetActor ? targetActor.get_name ? targetActor.get_name() : '<unknown>' : 'null'}`);
-                        log(`vertigrid: actor hierarchy=${targetActor ? dumpActorPath(targetActor) : '<none>'}`);
+                            const target = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, mx, my);
+                            let found = this._findCategoryViewFromActor(target);
+                            if (!found.view) {
+                                found = this._findCategoryViewAtStagePoint(mx, my);
+                            }
+                            const foundView = found.view;
+                            if (foundView !== this._highlightedView) {
+                                try {
+                                    if (this._highlightedView) this._highlightedView.set_style('');
+                                } catch (e) {}
+                                this._highlightedView = foundView;
+                                try {
+                                    if (this._highlightedView) this._highlightedView.set_style('box-shadow: inset 0 0 0 2px rgba(255,255,255,0.08); background-color: rgba(255,255,255,0.02);');
+                                } catch (e) {}
+                            }
+                        } catch (e) {}
+                        // Consume it - nothing else (including GNOME's own
+                        // handlers) should react to pointer motion while a
+                        // drag ghost is being dragged around.
+                        return Clutter.EVENT_STOP;
+                    }
 
-                        let found = this._findCategoryViewFromActor(targetActor);
-                        if (!found.view) {
-                            found = this._findCategoryViewAtStagePoint(rx, ry);
-                            log(`vertigrid: fallback category=${found.category}`);
+                    if (eventType === Clutter.EventType.BUTTON_RELEASE) {
+                        if (!this._dragActor) {
+                            return Clutter.EVENT_PROPAGATE;
                         }
-                        log(`vertigrid: found category=${found.category}`);
-                        if (found.view) {
-                            const cat = found.category;
-                            const destView = found.view;
+                        try {
+                            const src = this._dragActor;
+                            src._dragging = false;
+                            const [rx, ry] = this._getEventCoords(event);
 
-                            let childUnder = targetActor;
-                            let insertIndex = destView.get_children().length;
-
-                            while (childUnder && childUnder !== destView) {
-                                if (childUnder.get_parent && childUnder.get_parent() === destView) {
-                                    const children = destView.get_children();
-                                    const idx = children.indexOf(childUnder);
-                                    if (idx !== -1) {
-                                        insertIndex = idx;
-                                        break;
+                            const dumpActorPath = actor => {
+                                const path = [];
+                                let current = actor;
+                                while (current) {
+                                    const name = current.get_name ? current.get_name() : '<unnamed>';
+                                    const type = current.toString ? current.toString() : '<unknown>';
+                                    path.push(`${name} (${type})`);
+                                    try {
+                                        current = current.get_parent();
+                                    } catch (e) {
+                                        current = null;
                                     }
                                 }
-                                try {
-                                    childUnder = childUnder.get_parent();
-                                } catch (e) {
-                                    childUnder = null;
+                                return path.join(' -> ');
+                            };
+
+                            log(`vertigrid: drop release coords=${rx},${ry}`);
+                            const targetActor = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, rx, ry);
+                            log(`vertigrid: hit targetActor=${targetActor ? targetActor.get_name ? targetActor.get_name() : '<unknown>' : 'null'}`);
+                            log(`vertigrid: actor hierarchy=${targetActor ? dumpActorPath(targetActor) : '<none>'}`);
+
+                            let found = this._findCategoryViewFromActor(targetActor);
+                            if (!found.view) {
+                                found = this._findCategoryViewAtStagePoint(rx, ry);
+                                log(`vertigrid: fallback category=${found.category}`);
+                            }
+                            log(`vertigrid: found category=${found.category}`);
+                            if (found.view) {
+                                const cat = found.category;
+                                const destView = found.view;
+
+                                let childUnder = targetActor;
+                                let insertIndex = destView.get_children().length;
+
+                                while (childUnder && childUnder !== destView) {
+                                    if (childUnder.get_parent && childUnder.get_parent() === destView) {
+                                        const children = destView.get_children();
+                                        const idx = children.indexOf(childUnder);
+                                        if (idx !== -1) {
+                                            insertIndex = idx;
+                                            break;
+                                        }
+                                    }
+                                    try {
+                                        childUnder = childUnder.get_parent();
+                                    } catch (e) {
+                                        childUnder = null;
+                                    }
                                 }
-                            }
 
-                            log(`vertigrid: dropping into=${cat} insertIndex=${insertIndex}`);
-                            try {
-                                setAppCategory(src._appId, cat, insertIndex);
-                            } catch (e) {
-                                log(`vertigrid: setAppCategory error=${e}`);
-                                setAppCategory(src._appId, cat);
-                            }
+                                log(`vertigrid: dropping into=${cat} insertIndex=${insertIndex}`);
+                                try {
+                                    setAppCategory(src._appId, cat, insertIndex);
+                                } catch (e) {
+                                    log(`vertigrid: setAppCategory error=${e}`);
+                                    setAppCategory(src._appId, cat);
+                                }
 
-                            this._redisplay();
+                                this._redisplay();
+                            }
+                        } catch (e) {
+                            log(`vertigrid: release handler exception=${e}`);
                         }
-                    } catch (e) {
-                        log(`vertigrid: release handler exception=${e}`);
-                    }
-                    try {
-                        global.stage.disconnect(this._dragStageHandler);
-                    } catch (e) {}
-                    this._dragStageHandler = null;
 
-                    if (this._dragMotionHandler) {
                         try {
-                            global.stage.disconnect(this._dragMotionHandler);
+                            global.stage.disconnect(this._dragCapturedHandler);
                         } catch (e) {}
-                        this._dragMotionHandler = null;
+                        this._dragCapturedHandler = null;
+
+                        if (this._dragGhost) {
+                            try {
+                                global.stage.remove_child(this._dragGhost);
+                            } catch (e) {}
+                            this._dragGhost = null;
+                        }
+
+                        this._dragActor = null;
+                        // Consume the release too - this is the critical
+                        // part: without this, GNOME's own capture-phase
+                        // background-click handler would still see this
+                        // same release and close the overview, since a
+                        // drop onto empty category space has no reactive
+                        // actor under the pointer for it to distinguish
+                        // from an ordinary background click.
+                        return Clutter.EVENT_STOP;
                     }
 
-                    if (this._dragGhost) {
-                        try {
-                            global.stage.remove_child(this._dragGhost);
-                        } catch (e) {}
-                        this._dragGhost = null;
-                    }
-
-                    this._dragActor = null;
-                    return Clutter.EVENT_STOP;
+                    return Clutter.EVENT_PROPAGATE;
                 });
             } catch (e) {}
         }
@@ -1348,17 +1423,11 @@ export const VerticalAppDisplay = GObject.registerClass(
         }
 
         _cancelActiveDrag() {
-            if (this._dragMotionHandler) {
+            if (this._dragCapturedHandler) {
                 try {
-                    global.stage.disconnect(this._dragMotionHandler);
+                    global.stage.disconnect(this._dragCapturedHandler);
                 } catch (e) {}
-                this._dragMotionHandler = null;
-            }
-            if (this._dragStageHandler) {
-                try {
-                    global.stage.disconnect(this._dragStageHandler);
-                } catch (e) {}
-                this._dragStageHandler = null;
+                this._dragCapturedHandler = null;
             }
             if (this._dragGhost) {
                 try {

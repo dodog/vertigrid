@@ -200,8 +200,6 @@ export function getAllCategories() {
     return [...getCategories().map(cat => cat.name), 'Other'];
 }
 
-
-/** ========== 如果你不是开发人员，不要不要修改以下内容 ========== **/
 /** ========== DO NOT MODIFY THE FOLLOWING UNLESS YOU ARE A DEVELOPER ========== **/
 
 export const CATEGORY_ORDER = getCategoryOrder();
@@ -286,12 +284,28 @@ export function getCategoryOrderMap() {
     return result;
 }
 
+function _isValidTargetCategory(currentCategories, name) {
+    // A category is only safe to hand back to the app grid if it's
+    // currently enabled and not itself merged elsewhere — i.e. exactly the
+    // set getCategoryOrder() exposes. Anything else (a typo'd merge target,
+    // a merge into a disabled/removed category, a stale override) must not
+    // be returned as-is: the app grid only allocates buckets for that
+    // valid set, so an unrecognized name causes it to crash when it tries
+    // to push an app into a bucket that doesn't exist.
+    return currentCategories.some(c =>
+        c.enabled && !c.merge && _categoryNamesEqual(c.name, name)
+    );
+}
+
 /**
  * Get the category for an app from its desktop file categories
  */
 export function getAppCategory(appInfo) {
     try {
         const currentCategories = getCategories();
+
+        const resolve = candidate =>
+            _isValidTargetCategory(currentCategories, candidate) ? candidate : 'Other';
 
         // Check for user overrides first (e.g. drag-and-drop into a
         // category). The override still needs to be resolved through the
@@ -308,13 +322,14 @@ export function getAppCategory(appInfo) {
                         return 'Other';
                     }
                     if (catConfig.merge) {
-                        return catConfig.merge;
+                        return resolve(catConfig.merge);
                     }
-                    return catConfig.name;
+                    return resolve(catConfig.name);
                 }
                 // No config found for this category (e.g. it was removed
-                // entirely) — fall back to the override value as-is.
-                return overrideCategory;
+                // entirely) — fall back to the override value, but only if
+                // it still resolves to something valid.
+                return resolve(overrideCategory);
             }
         } catch (e) {
             // ignore if appInfo doesn't have get_id
@@ -349,9 +364,9 @@ export function getAppCategory(appInfo) {
                 continue;
             }
             if (catConfig.merge) {
-                return catConfig.merge;
+                return resolve(catConfig.merge);
             }
-            return catConfig.name;
+            return resolve(catConfig.name);
         }
     } catch (e) {
         console.error('Error getting app category:', e);
