@@ -1,9 +1,16 @@
 msgid ""
 msgstr ""
+"Project-Id-Version: VertiGrid 1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-12 00:00+0000\n"
+"PO-Revision-Date: \n"
+"Last-Translator: Jozef Gaal <preklady@mayday.sk>\n"
+"Language-Team: \n"
 "Language: pt_BR\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Poedit 3.9\n"
 
 msgid "Favorites"
 msgstr "Favoritos"
@@ -11,11 +18,14 @@ msgstr "Favoritos"
 msgid "All Apps"
 msgstr "Todos os aplicativos"
 
-msgid "Add to Favorites"
-msgstr "Adicionar aos favoritos"
+msgid "Other"
+msgstr "Other"
 
 msgid "Remove from Favorites"
 msgstr "Remover dos favoritos"
+
+msgid "Add to Favorites"
+msgstr "Adicionar aos favoritos"
 
 msgid "Preferences"
 msgstr "Preferências"
@@ -56,60 +66,144 @@ msgstr "Tamanho dos ícones"
 msgid "Icon Spacing"
 msgstr "Espaçamento dos ícones"
 
-
 msgid "Show favorites in app grid"
-msgstr "Show favorites in app grid"
+msgstr ""
 
-msgid "When enabled, applications pinned to favorites will appear in the apps grid"
-msgstr "When enabled, applications pinned to favorites will appear in the apps grid"
+msgid ""
+"When enabled, applications pinned to favorites will appear in the apps grid"
+msgstr ""
 
 msgid "Group by Category"
-msgstr "Group by Category"
+msgstr ""
 
 msgid "Edit Categories Profile"
-msgstr "Edit Categories Profile"
+msgstr ""
 
 msgid "Open the categories configuration file"
-msgstr "Open the categories configuration file"
+msgstr ""
 
 msgid "Development"
-msgstr "Development"
+msgstr ""
 
 msgid "Office"
-msgstr "Office"
+msgstr ""
 
 msgid "Network"
-msgstr "Network"
+msgstr ""
 
 msgid "AudioVideo"
-msgstr "AudioVideo"
+msgstr ""
 
 msgid "Audio"
-msgstr "Audio"
+msgstr ""
 
 msgid "Video"
-msgstr "Video"
+msgstr ""
 
 msgid "Graphics"
-msgstr "Graphics"
+msgstr ""
 
 msgid "Education"
-msgstr "Education"
+msgstr ""
 
 msgid "Game"
-msgstr "Game"
+msgstr ""
 
 msgid "Utility"
-msgstr "Utility"
+msgstr ""
 
 msgid "Accessories"
-msgstr "Accessories"
+msgstr ""
 
 msgid "System"
-msgstr "System"
+msgstr ""
 
 msgid "Settings"
-msgstr "Settings"
+msgstr ""
 
-msgid "Other"
-msgstr "Other"
+msgid "Show Workspaces Bar"
+msgstr ""
+
+msgid "Show workspace thumbnails at the top of the Overview"
+msgstr ""
+
+msgid "Category Label Size"
+msgstr ""
+
+msgid "Adjust the font size shown in the category navigation."
+msgstr ""
+
+#, fuzzy
+#| msgid "Edit Categories Profile"
+msgid "Edit Custom Categories"
+msgstr "Edit Categories Profile"
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid ""
+"Add a custom category, choose whether it is enabled, and optionally merge it "
+"into an existing category name (e.g. merge \"Fonts\" into "
+"\"Development\"). \n"
+"You can also set a custom sort order for any category, built-in or custom — "
+"lower numbers appear first."
+msgstr ""
+
+msgid "Category name (e.g. Fonts)"
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Built-in"
+msgstr ""
+
+msgid "Merge into another category"
+msgstr ""
+
+msgid "Target category name (e.g. Webdesign)"
+msgstr ""
+
+msgid "Add category"
+msgstr ""
+
+msgid " Failed to save custom categories:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Edit Categories Profile"
+msgid "Custom Categories Saved"
+msgstr "Edit Categories Profile"
+
+msgid "OK"
+msgstr ""
+
+msgid ""
+"Your custom category settings have been saved.\n"
+"\n"
+"You need to log out and log back in for these changes to take effect."
+msgstr ""
+
+msgid "Duplicate category name: "
+msgstr ""
+
+msgid "Enter a target category to merge \""
+msgstr ""
+
+msgid "\" into, or uncheck \"Merge into another category\"."
+msgstr ""
+
+msgid "Default categories"
+msgstr ""
+
+msgid "Open the custom category editor"
+msgstr ""
+
+msgid "Custom order"
+msgstr ""
+
+msgid "Lower numbers appear first"
+msgstr ""
