@@ -3,6 +3,7 @@ name: Package GNOME extension for Release
 on:
   release:
     types: [created]
+
 permissions:
   contents: write
 
@@ -10,70 +11,22 @@ jobs:
   package:
     name: Build and upload extension ZIP
     runs-on: ubuntu-latest
-    # top-level permissions set above
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Ensure msgfmt is available
+      - name: Install packaging tools
         run: |
           sudo apt-get update
           sudo apt-get install -y gettext zip
 
-      - name: Build translations and package extension
-        working-directory: ./src
+      - name: Bundle extension
         run: |
-          set -euo pipefail
-          NAME=vertigrid
-          DOMAIN=dodog.github.com
-          ZIP_NAME="${NAME}@${DOMAIN}.zip"
-
-          echo "Compiling translations..."
-          if [ -d po ]; then
-            for po in po/*.po; do
-              [ -f "$po" ] || continue
-              lang="$(basename "${po%.po}")"
-              mkdir -p "locale/${lang}/LC_MESSAGES"
-              msgfmt -o "locale/${lang}/LC_MESSAGES/${NAME}@${DOMAIN}.mo" "$po" || true
-            done
-          fi
-
-          echo "Creating ZIP $ZIP_NAME (excluding source .po files)..."
-          # Zip the contents of src/ as the extension root, excluding .po files.
-          # Write the archive to the repository root so the upload steps can find it.
-          zip -r "${GITHUB_WORKSPACE}/${ZIP_NAME}" . -x "po/*"
-          echo "Created archive: ${GITHUB_WORKSPACE}/${ZIP_NAME}"
-          ls -la "${GITHUB_WORKSPACE}"
-          find "${GITHUB_WORKSPACE}" -maxdepth 2 -name "${ZIP_NAME}"
-
-      - name: Verify ZIP exists
-        id: verify_zip
-        run: |
-          NAME=vertigrid
-          DOMAIN=dodog.github.com
-          ZIP_NAME="${NAME}@${DOMAIN}.zip"
-          ZIP_PATH="${GITHUB_WORKSPACE}/${ZIP_NAME}"
-          if [ -f "$ZIP_PATH" ]; then
-            echo "Found $ZIP_PATH"
-            echo "zip_exists=true" >> "$GITHUB_OUTPUT"
-            echo "zip_path=$ZIP_PATH" >> "$GITHUB_OUTPUT"
-          else
-            echo "zip_exists=false" >> "$GITHUB_OUTPUT"
-            echo "zip_path=$ZIP_PATH" >> "$GITHUB_OUTPUT"
-            ls -la "${GITHUB_WORKSPACE}"
-            exit 1
-          fi
+          bash ./install.sh --bundle
 
       - name: Upload ZIP to Release
-        if: steps.verify_zip.outputs.zip_exists == 'true'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.verify_zip.outputs.zip_path }}
+          files: vertigrid@dodog.github.com.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifact for inspection
-        uses: actions/upload-artifact@v4
-        with:
-          name: vertigrid-zip
-          path: ${{ github.workspace }}/vertigrid@dodog.github.com.zip
