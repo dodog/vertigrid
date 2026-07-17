@@ -6,8 +6,8 @@ for arg in "$@"; do
     [ "$arg" = "--bundle" ] && BUNDLE=1
 done
 
-NAME="vertical-app-grid"
-DOMAIN="lublst.github.io"
+NAME="vertigrid"
+DOMAIN="dodog.github.com"
 ZIP_NAME="$NAME@$DOMAIN.zip"
 
 echo ":: Compiling translations..."
