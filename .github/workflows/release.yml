@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
 
+env:
+  UUID: vertigrid@dodog.github.com
+
 jobs:
   package:
     runs-on: ubuntu-latest
@@ -16,19 +19,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Read extension UUID from metadata.json
-        id: meta
+      - name: Install gettext (for msgfmt)
+        run: sudo apt-get update && sudo apt-get install -y gettext
+
+      - name: Stage extension files
         run: |
-          UUID=$(jq -r '.uuid' src/metadata.json)
-          echo "Extension UUID: $UUID"
-          echo "uuid=$UUID" >> "$GITHUB_OUTPUT"
+          mkdir -p build
+          cp -r src/. build/
+          # Translation sources aren't distributed - only the compiled .mo files are.
+          rm -rf build/po
+
+      - name: Compile translations
+        run: |
+          shopt -s nullglob
+          for po in src/po/*.po; do
+            lang=$(basename "$po" .po)
+            mkdir -p "build/locale/$lang/LC_MESSAGES"
+            msgfmt "$po" -o "build/locale/$lang/LC_MESSAGES/${UUID}.mo"
+          done
 
       - name: Package extension
         run: |
-          cd src
-          zip -r "../${{ steps.meta.outputs.uuid }}.shell-extension.zip" . -x '.*'
+          cd build
+          zip -r "../${UUID}.zip" . -x '.*'
 
       - name: Attach zip to release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.meta.outputs.uuid }}.shell-extension.zip
+          files: ${{ env.UUID }}.zip
