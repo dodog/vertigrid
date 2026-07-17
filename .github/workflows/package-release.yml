@@ -20,9 +20,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gettext zip
 
-      - name: Bundle extension
+      - name: Build extension ZIP
         run: |
-          bash ./install.sh --bundle
+          set -euo pipefail
+          NAME=vertigrid
+          DOMAIN=dodog.github.com
+          ZIP_NAME="${NAME}@${DOMAIN}.zip"
+          cd src
+          for po in po/*.po; do
+            [ -f "$po" ] || continue
+            lang="$(basename "${po%.po}")"
+            mkdir -p "locale/${lang}/LC_MESSAGES"
+            msgfmt -o "locale/${lang}/LC_MESSAGES/${NAME}@${DOMAIN}.mo" "$po"
+          done
+          zip -qr "${GITHUB_WORKSPACE}/${ZIP_NAME}" . -x "po/*"
+
+      - name: Verify archive
+        run: |
+          NAME=vertigrid
+          DOMAIN=dodog.github.com
+          ZIP_NAME="${NAME}@${DOMAIN}.zip"
+          ls -l "${GITHUB_WORKSPACE}/${ZIP_NAME}"
 
       - name: Upload ZIP to Release
         uses: softprops/action-gh-release@v1
