@@ -119,7 +119,7 @@ export default class VerticalAppGridExtension extends Extension {
 
                 let hidden = false;
 
-                // Rely on show()/hide() alone 
+                // Rely on show()/hide() alone
                 try {
                     if (show) {
                         workspaceDisplay.show();
@@ -342,8 +342,7 @@ export default class VerticalAppGridExtension extends Extension {
 
         // Restore workspace visibility when disabling
         try {
-            if (this._updateWorkspacesVisibility && this._settings) {
-                this._settings.set_boolean('show-workspaces', true);
+            if (this._updateWorkspacesVisibility) {
                 this._updateWorkspacesVisibility();
             }
         } catch (e) {}

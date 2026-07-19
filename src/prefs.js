@@ -2,7 +2,8 @@ import Gio from 'gi://Gio';
 import Gtk from 'gi://Gtk';
 
 import {
-    DEFAULT_CATEGORIES
+    DEFAULT_CATEGORIES,
+    getSettingsString
 } from './categories.js';
 
 import {
@@ -451,6 +452,17 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
                 continue;
             }
 
+            // Category names are stored (and matched against app-category
+            // overrides) using "appId::category::index"-style encoding, so
+            // a name containing "::" would corrupt that encoding when an
+            // app gets dragged into it - reject it up front instead.
+            if (name.includes('::')) {
+                return {
+                    categories: [],
+                    errorMessage: _('Category name cannot contain "::": ') + name
+                };
+            }
+
             const key = name.toLowerCase();
             if (seenNames.has(key)) {
                 return {
@@ -472,6 +484,14 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
                         errorMessage: _('Enter a target category to merge "') + name + _('" into, or uncheck "Merge into another category".')
                     };
                 }
+
+                if (mergeTarget.includes('::')) {
+                    return {
+                        categories: [],
+                        errorMessage: _('Merge target cannot contain "::": ') + mergeTarget
+                    };
+                }
+
                 merge = mergeTarget;
             }
 
@@ -506,7 +526,7 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
             isDefault: true
         }));
 
-        const raw = this._getSettingsString(settings, 'custom-categories', '[]');
+        const raw = getSettingsString(settings, 'custom-categories', '[]');
         let stored = [];
         try {
             const parsed = JSON.parse(raw);
@@ -544,15 +564,6 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
         }
 
         return merged;
-    }
-
-    _getSettingsString(settings, key, fallback = '') {
-        try {
-            return settings.get_string(key) || fallback;
-        } catch (e) {
-            log(`vertigrid: Failed to read ${key}: ${e}`);
-            return fallback;
-        }
     }
 
     _bindComboRow(builder, settings, key, values) {

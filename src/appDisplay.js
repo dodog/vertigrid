@@ -22,6 +22,7 @@ import {
     getCategoryOrder,
     getAppCategory,
     setAppCategory,
+    setCategoryOrder,
     getCategoryOrderMap
 } from './categories.js';
 
@@ -259,6 +260,51 @@ export const VerticalAppDisplay = GObject.registerClass(
             row.add_child(line);
 
             return row;
+        }
+
+        // Computes where in destView's child list a drop at stage
+        // coordinates (stageX, stageY) should land, using the same
+        // row/column formula VerticalLayout uses to actually place
+        // children (col = i % columns, row = floor(i / columns)) run in
+        // reverse. This works uniformly whether the pointer is over an
+        // icon or over a gap between/after icons.
+        _computeGridInsertIndex(destView, stageX, stageY) {
+            try {
+                const children = destView.get_children();
+
+                let viewPos = [0, 0];
+                if (destView.translate_coordinates) {
+                    viewPos = destView.translate_coordinates(global.stage, 0, 0);
+                } else if (destView.get_transformed_position) {
+                    viewPos = destView.get_transformed_position();
+                }
+
+                const localX = stageX - viewPos[0];
+                const localY = stageY - viewPos[1];
+
+                const layout = destView.layout_manager;
+                const columns = Math.max(1, layout._columns || 1);
+                const spacing = layout._spacing || 0;
+                const childSize = layout._getMinChildSize ?
+                    layout._getMinChildSize(children) : 0;
+                const cellSize = childSize + spacing;
+
+                if (cellSize <= 0 || children.length === 0) {
+                    return children.length;
+                }
+
+                const col = Math.min(columns - 1, Math.max(0, Math.floor(localX / cellSize)));
+                const row = Math.max(0, Math.floor(localY / cellSize));
+
+                const index = row * columns + col;
+                return Math.min(Math.max(index, 0), children.length);
+            } catch (e) {
+                try {
+                    return destView.get_children().length;
+                } catch (e2) {
+                    return 0;
+                }
+            }
         }
 
         _getInstalledIdsSet() {
@@ -561,7 +607,7 @@ export const VerticalAppDisplay = GObject.registerClass(
 
             const fontSize = this._settings.get_int('category-font-size');
 
-            visibleCategories.forEach((item, index) => {
+            visibleCategories.forEach((item) => {
                 const button = new St.Button({
                     x_expand: true,
                     reactive: true,
@@ -1028,7 +1074,9 @@ export const VerticalAppDisplay = GObject.registerClass(
         _redisplay() {
             this._animateRedisplay(() => {
                 this._redisplayLater = this._laters.add(Meta.LaterType.IDLE, () => {
-
+                    // The try/finally guarantees the fade-back-in always
+                    // runs, so a bug elsewhere degrades to "redisplay didn't
+                    // fully update" rather than "grid disappears".
                     try {
                         this._cancelDrag();
                         this._cancelNavAnimation();
@@ -1211,7 +1259,36 @@ export const VerticalAppDisplay = GObject.registerClass(
                             const labelWidth = labelBox ? (labelBox.x2 - labelBox.x1) : Math.max(64, width);
                             const labelHeight = labelBox ? (labelBox.y2 - labelBox.y1) : 24;
 
-                            const dropPadding = 160; // extra vertical area below label
+                            // Default padding for a generous empty-category
+                            // drop target, but clamped below so it can
+                            // never extend past wherever the next visible
+                            // category's own header sits - otherwise a
+                            // sparsely-populated category's drop zone can
+                            // bleed into its neighbor's space and steal
+                            // drops meant for that category.
+                            let dropPadding = 160;
+                            try {
+                                const orderIdx = this._categoryOrder ? this._categoryOrder.indexOf(cat) : -1;
+                                if (orderIdx !== -1 && orderIdx + 1 < this._categoryOrder.length) {
+                                    const nextCat = this._categoryOrder[orderIdx + 1];
+                                    const nextLabel = this._categoryLabels[nextCat];
+                                    if (nextLabel) {
+                                        let nextLabelPos = [0, 0];
+                                        if (nextLabel.translate_coordinates) {
+                                            nextLabelPos = nextLabel.translate_coordinates(global.stage, 0, 0);
+                                        } else if (nextLabel.get_transformed_position) {
+                                            nextLabelPos = nextLabel.get_transformed_position();
+                                        }
+                                        const gapToNext = nextLabelPos[1] - (labelPos[1] + labelHeight);
+                                        if (gapToNext > 0) {
+                                            // Leave a small buffer before the
+                                            // next header rather than
+                                            // touching it exactly.
+                                            dropPadding = Math.max(20, Math.min(dropPadding, gapToNext - 10));
+                                        }
+                                    }
+                                }
+                            } catch (e) {}
 
                             const dropX1 = labelPos[0];
                             const dropX2 = labelPos[0] + labelWidth;
@@ -1346,30 +1423,33 @@ export const VerticalAppDisplay = GObject.registerClass(
                                 const cat = found.category;
                                 const destView = found.view;
 
-                                let childUnder = targetActor;
-                                let insertIndex = destView.get_children().length;
+                                // Computing the slot geometrically
+                                // - the same row/column formula VerticalLayout
+                                // itself uses to lay out children - gives a
+                                // consistent, correct index regardless of
+                                // whether the pointer landed on an icon or
+                                // on empty grid space.
+                                const insertIndex = this._computeGridInsertIndex(destView, rx, ry);
 
-                                while (childUnder && childUnder !== destView) {
-                                    if (childUnder.get_parent && childUnder.get_parent() === destView) {
-                                        const children = destView.get_children();
-                                        const idx = children.indexOf(childUnder);
-                                        if (idx !== -1) {
-                                            insertIndex = idx;
-                                            break;
-                                        }
-                                    }
-                                    try {
-                                        childUnder = childUnder.get_parent();
-                                    } catch (e) {
-                                        childUnder = null;
-                                    }
-                                }
+                                // Build the full resulting order for this
+                                // category and write an explicit index for
+                                // every app in it via setCategoryOrder(),
+                                // rather than only ever writing an index for
+                                // the one dragged app via setAppCategory().
+                                const currentIds = destView.get_children()
+                                    .map(child => child._appId)
+                                    .filter(Boolean);
 
-                                log(`vertigrid: dropping into=${cat} insertIndex=${insertIndex}`);
+                                const draggedId = src._appId;
+                                const withoutDragged = currentIds.filter(id => id !== draggedId);
+                                const clampedIndex = Math.min(Math.max(insertIndex, 0), withoutDragged.length);
+                                withoutDragged.splice(clampedIndex, 0, draggedId);
+
+                                log(`vertigrid: dropping into=${cat} insertIndex=${clampedIndex}`);
                                 try {
-                                    setAppCategory(src._appId, cat, insertIndex);
+                                    setCategoryOrder(cat, withoutDragged);
                                 } catch (e) {
-                                    log(`vertigrid: setAppCategory error=${e}`);
+                                    log(`vertigrid: setCategoryOrder error=${e}`);
                                     setAppCategory(src._appId, cat);
                                 }
 
@@ -1547,7 +1627,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                     });
 
                     // If released before threshold, cancel pending drag
-                    this._pendingReleaseId = global.stage.connect('button-release-event', (stage, relEvent) => {
+                    this._pendingReleaseId = global.stage.connect('button-release-event', () => {
                         this._cancelPendingDrag();
                         return Clutter.EVENT_PROPAGATE;
                     });
@@ -1927,7 +2007,7 @@ const VerticalLayout = GObject.registerClass(
                 const x = col * (childSize + this._spacing);
                 const y = row * (childSize + this._spacing);
 
-                const [_minWidth, _minHeight,
+                const [, ,
                     naturalWidth, naturalHeight
                 ] = children[i].get_preferred_size();
 

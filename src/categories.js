@@ -11,10 +11,85 @@ Define custom categories as JSON objects with:
 */
 
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 
-const _settings = new Gio.Settings({
-    schema_id: 'org.gnome.shell.extensions.vertigrid'
-});
+export function getSettingsString(settings, key, fallback = '') {
+    if (!settings) {
+        return fallback;
+    }
+
+    try {
+        return settings.get_string(key) || fallback;
+    } catch (e) {
+        log(`vertigrid: Failed to read ${key}: ${e}`);
+        return fallback;
+    }
+}
+
+export function getSettingsStrv(settings, key, fallback = []) {
+    if (!settings) {
+        return fallback;
+    }
+
+    try {
+        return settings.get_strv(key) || fallback;
+    } catch (e) {
+        log(`vertigrid: Failed to read ${key}: ${e}`);
+        return fallback;
+    }
+}
+
+function _resolveExtensionSettings(schemaId) {
+    const extensionDir = GLib.path_get_dirname(
+        Gio.File.new_for_uri(
+            import.meta.url).get_path()
+    );
+    const schemaDir = GLib.build_filenamev([extensionDir, 'schemas']);
+    const compiledSchemaPath = GLib.build_filenamev([schemaDir, 'gschemas.compiled']);
+
+    let schemaSource;
+    if (GLib.file_test(compiledSchemaPath, GLib.FileTest.EXISTS)) {
+        schemaSource = Gio.SettingsSchemaSource.new_from_directory(
+            schemaDir,
+            Gio.SettingsSchemaSource.get_default(),
+            false
+        );
+    } else {
+        schemaSource = Gio.SettingsSchemaSource.get_default();
+    }
+
+    const schemaObj = schemaSource.lookup(schemaId, true);
+    if (!schemaObj) {
+        throw new Error(`Schema ${schemaId} could not be found in the local or system schema sources.`);
+    }
+
+    return new Gio.Settings({
+        settings_schema: schemaObj
+    });
+}
+
+// Lazily resolved and cached rather than constructed eagerly at module
+// load: this module is imported both from the GNOME Shell process (via
+// appDisplay.js) and from the separate prefs.js process (for
+// DEFAULT_CATEGORIES).Failures are caught here and degrade to fallback values instead of throwing at
+// import time and breaking the whole module (and anything that imports
+// it, including prefs.js opening the preferences window).
+let _settingsInstance = null;
+let _settingsInitAttempted = false;
+
+function _getSettings() {
+    if (!_settingsInitAttempted) {
+        _settingsInitAttempted = true;
+        try {
+            _settingsInstance = _resolveExtensionSettings('org.gnome.shell.extensions.vertigrid');
+        } catch (e) {
+            log(`vertigrid: Failed to resolve settings schema in categories.js: ${e}`);
+            _settingsInstance = null;
+        }
+    }
+
+    return _settingsInstance;
+}
 
 export const DEFAULT_CATEGORIES = [{
         name: 'Development',
@@ -122,26 +197,16 @@ function _normalizeCategory(category, defaultOrder) {
     };
 }
 
-function _getSettingsString(key, fallback = '') {
-    try {
-        return _settings.get_string(key) || fallback;
-    } catch (e) {
-        log(`vertigrid: Failed to read ${key}: ${e}`);
-        return fallback;
-    }
+function _getSettingsStringLocal(key, fallback = '') {
+    return getSettingsString(_getSettings(), key, fallback);
 }
 
-function _getSettingsStrv(key, fallback = []) {
-    try {
-        return _settings.get_strv(key) || fallback;
-    } catch (e) {
-        log(`vertigrid: Failed to read ${key}: ${e}`);
-        return fallback;
-    }
+function _getSettingsStrvLocal(key, fallback = []) {
+    return getSettingsStrv(_getSettings(), key, fallback);
 }
 
 function _loadCustomCategories() {
-    const raw = _getSettingsString('custom-categories', '[]');
+    const raw = _getSettingsStringLocal('custom-categories', '[]');
     try {
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) {
@@ -202,42 +267,115 @@ export function getAllCategories() {
 
 /** ========== DO NOT MODIFY THE FOLLOWING UNLESS YOU ARE A DEVELOPER ========== **/
 
-export const CATEGORY_ORDER = getCategoryOrder();
 
-export const ALL_CATEGORIES = getAllCategories();
+// app-category-overrides entries are encoded as "appId::category::index"
+// (index optional). These three helpers are the single place that format
+// is written and read, instead of each caller re-implementing its own
+// split('::')/startsWith() logic.
+function _encodeOverrideEntry(appId, category, index) {
+    if (index !== null && index !== undefined) {
+        return `${appId}::${category}::${Math.floor(index)}`;
+    }
+    return `${appId}::${category}`;
+}
+
+function _parseOverrideEntry(entry) {
+    const parts = entry.split('::');
+    if (parts.length < 2) {
+        return null;
+    }
+
+    const id = parts[0];
+    const category = parts[1];
+    const parsedIndex = parts.length >= 3 ? parseInt(parts[2], 10) : null;
+
+    return {
+        id,
+        category,
+        index: Number.isFinite(parsedIndex) ? parsedIndex : null
+    };
+}
+
+function _removeOverrideEntriesForApp(arr, appId) {
+    return arr.filter(e => !e.startsWith(appId + '::'));
+}
 
 function _loadOverrides() {
-    const arr = _getSettingsStrv('app-category-overrides', []);
+    const arr = _getSettingsStrvLocal('app-category-overrides', []);
     // Map of appId -> { category: string, index: number|null }
     const map = new Map();
     for (const entry of arr) {
-        const parts = entry.split('::');
-        if (parts.length >= 2) {
-            const id = parts[0];
-            const category = parts[1];
-            const index = parts.length >= 3 ? parseInt(parts[2], 10) : null;
-            map.set(id, {
-                category,
-                index: Number.isFinite(index) ? index : null
-            });
+        const parsed = _parseOverrideEntry(entry);
+        if (!parsed) {
+            continue;
         }
+        map.set(parsed.id, {
+            category: parsed.category,
+            index: parsed.index
+        });
     }
     return map;
 }
 
 export function setAppCategory(appId, category, index = null) {
+    const settings = _getSettings();
+    if (!settings) {
+        return false;
+    }
+
     try {
-        const arr = _settings.get_strv('app-category-overrides') || [];
-        // remove existing for appId
-        const filtered = arr.filter(e => !e.startsWith(appId + '::'));
-        if (category && category !== 'Other') {
-            if (index !== null && index !== undefined) {
-                filtered.push(`${appId}::${category}::${Math.floor(index)}`);
-            } else {
-                filtered.push(`${appId}::${category}`);
-            }
+        const arr = settings.get_strv('app-category-overrides') || [];
+        const overrides = arr
+            .map(_parseOverrideEntry)
+            .filter(Boolean)
+            .filter(entry => entry.id !== appId);
+
+        if (!category || category === 'Other') {
+            settings.set_strv('app-category-overrides', overrides.map(entry => _encodeOverrideEntry(entry.id, entry.category, entry.index)));
+            return true;
         }
-        _settings.set_strv('app-category-overrides', filtered);
+
+        const numericIndex = Number.isFinite(Number(index)) ? Number(index) : null;
+        const target = overrides
+            .filter(entry => entry.category === category && entry.index !== null)
+            .sort((a, b) => a.index - b.index);
+        const others = overrides.filter(entry => entry.category !== category || entry.index === null);
+
+        const result = [...others];
+        if (numericIndex === null) {
+            result.push({
+                id: appId,
+                category,
+                index: null
+            });
+        } else {
+            const insertPos = Math.max(0, Math.min(numericIndex, target.length));
+            const ordered = [];
+
+            for (let i = 0; i < insertPos; i++) {
+                ordered.push({
+                    id: target[i].id,
+                    category,
+                    index: i
+                });
+            }
+            ordered.push({
+                id: appId,
+                category,
+                index: insertPos
+            });
+            for (let i = insertPos; i < target.length; i++) {
+                ordered.push({
+                    id: target[i].id,
+                    category,
+                    index: i + 1
+                });
+            }
+
+            result.push(...ordered);
+        }
+
+        settings.set_strv('app-category-overrides', result.map(entry => _encodeOverrideEntry(entry.id, entry.category, entry.index)));
         return true;
     } catch (e) {
         log(`vertigrid: Failed to set app category override: ${e}`);
@@ -246,10 +384,15 @@ export function setAppCategory(appId, category, index = null) {
 }
 
 export function clearAppCategory(appId) {
+    const settings = _getSettings();
+    if (!settings) {
+        return false;
+    }
+
     try {
-        const arr = _settings.get_strv('app-category-overrides') || [];
-        const filtered = arr.filter(e => !e.startsWith(appId + '::'));
-        _settings.set_strv('app-category-overrides', filtered);
+        const arr = settings.get_strv('app-category-overrides') || [];
+        const filtered = _removeOverrideEntriesForApp(arr, appId);
+        settings.set_strv('app-category-overrides', filtered);
         return true;
     } catch (e) {
         log(`vertigrid: Failed to clear app category override: ${e}`);
@@ -257,24 +400,62 @@ export function clearAppCategory(appId) {
     }
 }
 
+/**
+ * setCategoryOrder() fix by giving EVERY app in the category an
+ * explicit index in one write, so the whole category becomes one
+ * consistent, fully interleavable sort. Call this with the complete
+ * resulting app-id order for a category whenever a drag-and-drop reorder
+ * happens within or into it (see appDisplay.js's drop handler).
+ */
+export function setCategoryOrder(category, orderedAppIds) {
+    const settings = _getSettings();
+    if (!settings) {
+        return false;
+    }
+
+    try {
+        const arr = settings.get_strv('app-category-overrides') || [];
+        const reindexedIds = new Set(orderedAppIds);
+
+        // Drop any existing entry (in ANY category) for every id that's
+        // getting a fresh, authoritative placement below.
+        const overrides = arr
+            .map(_parseOverrideEntry)
+            .filter(Boolean)
+            .filter(entry => !reindexedIds.has(entry.id));
+
+        orderedAppIds.forEach((appId, index) => {
+            overrides.push({
+                id: appId,
+                category,
+                index
+            });
+        });
+
+        settings.set_strv('app-category-overrides', overrides.map(entry => _encodeOverrideEntry(entry.id, entry.category, entry.index)));
+        return true;
+    } catch (e) {
+        log(`vertigrid: Failed to set category order: ${e}`);
+        return false;
+    }
+}
+
 export function getCategoryOrderMap() {
     // Returns Map category -> array of appIds sorted by index (asc)
-    const overrides = _settings.get_strv('app-category-overrides') || [];
+    const overrides = _getSettingsStrvLocal('app-category-overrides', []);
     const buckets = new Map();
     for (const entry of overrides) {
-        const parts = entry.split('::');
-        if (parts.length >= 2) {
-            const id = parts[0];
-            const category = parts[1];
-            const index = parts.length >= 3 ? parseInt(parts[2], 10) : null;
-            if (index !== null && Number.isFinite(index)) {
-                if (!buckets.has(category)) buckets.set(category, []);
-                buckets.get(category).push({
-                    id,
-                    index
-                });
-            }
+        const parsed = _parseOverrideEntry(entry);
+        if (!parsed || parsed.index === null) {
+            continue;
         }
+        if (!buckets.has(parsed.category)) {
+            buckets.set(parsed.category, []);
+        }
+        buckets.get(parsed.category).push({
+            id: parsed.id,
+            index: parsed.index
+        });
     }
     const result = new Map();
     for (const [cat, arr] of buckets) {
