@@ -2,7 +2,7 @@
 
 **A vertical app grid for GNOME Shell with category grouping, navigation, and drag-and-drop support.**
 
-[![Gnome extension](https://img.shields.io/badge/GNOME%20Shell-48,%2049,%2050-blue)](https://extensions.gnome.org/extension/)
+[![Gnome extension](https://img.shields.io/badge/GNOME%20Shell-49,%2050-blue)](https://extensions.gnome.org/extension/)
 [![Licence](https://img.shields.io/badge/license-GPL--3.0-green)](https://www.gnu.org/licenses/gpl-3.0.html)
 
 VertiGrid is a GNOME Shell extension that replaces the default horizontal app grid with a vertical app grid in the overview.
