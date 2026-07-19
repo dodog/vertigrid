@@ -56,7 +56,15 @@ It adds category grouping, navigation, smooth scrolling, workspace visibility co
 ## 🖥️ Screenshots
 
 ### Vertical layout with categories
-![Screenshot](assets/vertical-app-grid-category-navigation.png)
+[![Vertical layout with categories](assets/vertigrid-navigation.png)](https://github.com/user-attachments/assets/1a23ba1f-9945-4168-b836-6e72542beaae)
+### Vertical layout focus mode
+![Vertical layout focus mode](assets/vertigrid-appgrid.png)
+### Vertical layout with workspaces
+![Vertical layout with workspaces](assets/vertigrid_workspaces.png)
+### Settings
+![Settings](assets/vertigrid-settings.png)
+
+
 
 * * *
 
