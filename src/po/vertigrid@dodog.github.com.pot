@@ -198,3 +198,9 @@ msgstr ""
 
 msgid "Lower numbers appear first"
 msgstr ""
+
+msgid "Category name cannot contain \"::\": "
+msgstr ""
+
+msgid "Merge target cannot contain \"::\": "
+msgstr ""

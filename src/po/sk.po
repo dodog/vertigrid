@@ -218,5 +218,11 @@ msgstr "Vlastné poradie"
 msgid "Lower numbers appear first"
 msgstr "Nižšie číslo sa zobrazí skôr"
 
+msgid "Category name cannot contain \"::\": "
+msgstr "Názov kategórie nemôže obsahovať \"::\": "
+
+msgid "Merge target cannot contain \"::\": "
+msgstr "Cieľová kategória zlúčenia nemôže obsahovať \"::\": "
+
 #~ msgid "Your custom category settings have been saved."
 #~ msgstr "Vaše nastavenie vlastných kategórií bolo uložené."
