@@ -175,7 +175,7 @@ msgstr ""
 msgid "OK"
 msgstr ""
 
-msgid "Your custom category settings have been saved.\n\nYou need to log out and log back in for these changes to take effect."
+msgid "Your custom category settings have been \nsaved and applied to the app grid."
 msgstr ""
 
 msgid "Duplicate category name: "
