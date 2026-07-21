@@ -417,22 +417,21 @@ export function setCategoryOrder(category, orderedAppIds) {
             .filter(Boolean)
             .filter(entry => !reindexedIds.has(entry.id));
 
-        // 'Other' isn't a real persisted override target - same convention
-        // as setAppCategory() above: resolving to Other means "no override,
-        // resume auto-detection", so apps dropped there just get their
-        // existing override cleared (already done above) rather than an
-        // explicit index-only 'Other' entry written. Without this, an app
-        // dragged into Other would be pinned there even if its .desktop
-        // category later resolved somewhere else on its own.
-        if (category !== 'Other') {
-            orderedAppIds.forEach((appId, index) => {
-                overrides.push({
-                    id: appId,
-                    category,
-                    index
-                });
+        // Write an explicit index for every app, including ones landing in
+        // 'Other'. 'Other' isn't a real configured category (it's never
+        // in currentCategories in getAppCategory() below), so an override
+        // entry here can only ever supply ordering metadata for the Other
+        // bucket - it can't accidentally "pin" an app there the way an
+        // override for a real category name would, so there's no downside
+        // to always persisting it. This also allows apps to be reordered
+        // within Other via drag-and-drop, same as any other category.
+        orderedAppIds.forEach((appId, index) => {
+            overrides.push({
+                id: appId,
+                category,
+                index
             });
-        }
+        });
 
         settings.set_strv('app-category-overrides', overrides.map(entry => _encodeOverrideEntry(entry.id, entry.category, entry.index)));
         return true;
@@ -520,10 +519,20 @@ export function getAppCategory(appInfo, context = null) {
                     }
                     return resolve(catConfig.name);
                 }
-                // No config found for this category (e.g. it was removed
-                // entirely) — fall back to the override value, but only if
-                // it still resolves to something valid.
-                return resolve(overrideCategory);
+
+                if (_categoryNamesEqual(overrideCategory, 'Other')) {
+                    // An explicit, intentional placement into Other (e.g.
+                    // dragging an app there, or reordering within it) -
+                    // honor it as-is rather than falling through below.
+                    return 'Other';
+                }
+
+                // No config found and it isn't 'Other' either, meaning the
+                // custom category itself was deleted entirely (not just
+                // disabled - that case is handled above and still resolves
+                // to 'Other'). The override is now stale, so fall through
+                // to natural detection via the app's own .desktop
+                // Categories= below instead of stranding it in Other.
             }
         } catch (e) {
             // ignore if appInfo doesn't have get_id
