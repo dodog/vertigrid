@@ -1339,22 +1339,6 @@ export const VerticalAppDisplay = GObject.registerClass(
                             src._dragging = false;
                             const [rx, ry] = this._getEventCoords(event);
 
-                            const dumpActorPath = actor => {
-                                const path = [];
-                                let current = actor;
-                                while (current) {
-                                    const name = current.get_name ? current.get_name() : '<unnamed>';
-                                    const type = current.toString ? current.toString() : '<unknown>';
-                                    path.push(`${name} (${type})`);
-                                    try {
-                                        current = current.get_parent();
-                                    } catch (e) {
-                                        current = null;
-                                    }
-                                }
-                                return path.join(' -> ');
-                            };
-
                             const targetActor = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, rx, ry);
 
                             let found = this._findCategoryViewFromActor(targetActor);
