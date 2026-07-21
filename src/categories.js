@@ -417,13 +417,22 @@ export function setCategoryOrder(category, orderedAppIds) {
             .filter(Boolean)
             .filter(entry => !reindexedIds.has(entry.id));
 
-        orderedAppIds.forEach((appId, index) => {
-            overrides.push({
-                id: appId,
-                category,
-                index
+        // 'Other' isn't a real persisted override target - same convention
+        // as setAppCategory() above: resolving to Other means "no override,
+        // resume auto-detection", so apps dropped there just get their
+        // existing override cleared (already done above) rather than an
+        // explicit index-only 'Other' entry written. Without this, an app
+        // dragged into Other would be pinned there even if its .desktop
+        // category later resolved somewhere else on its own.
+        if (category !== 'Other') {
+            orderedAppIds.forEach((appId, index) => {
+                overrides.push({
+                    id: appId,
+                    category,
+                    index
+                });
             });
-        });
+        }
 
         settings.set_strv('app-category-overrides', overrides.map(entry => _encodeOverrideEntry(entry.id, entry.category, entry.index)));
         return true;
@@ -466,12 +475,30 @@ function _isValidTargetCategory(currentCategories, name) {
 }
 
 /**
- * Determine the app's category, respecting overrides and enabled/merged
- * category validation.
+ * Precompute the pieces getAppCategory() needs - the merged category list
+ * and the override map - once. getAppCategory() calls this itself if no
+ * context is passed, but a caller classifying many apps in a loop (e.g.
+ * appDisplay.js building the whole grid) should call this once up front
+ * and pass the same context into every getAppCategory() call, rather than
+ * each of those calls independently re-reading and re-parsing settings
+ * (custom-categories, app-category-overrides) for what is, within a single
+ * pass, always the same result.
  */
-export function getAppCategory(appInfo) {
+export function getCategoryContext() {
+    return {
+        categories: getCategories(),
+        overrides: _loadOverrides()
+    };
+}
+
+/**
+ * Determine the app's category, respecting overrides and enabled/merged
+ * category validation. Pass a context from getCategoryContext() when
+ * classifying many apps in one pass to avoid redundant settings reads.
+ */
+export function getAppCategory(appInfo, context = null) {
     try {
-        const currentCategories = getCategories();
+        const currentCategories = context ? context.categories : getCategories();
 
         const resolve = candidate =>
             _isValidTargetCategory(currentCategories, candidate) ? candidate : 'Other';
@@ -480,7 +507,7 @@ export function getAppCategory(appInfo) {
         // category), but validate them against current enabled/merged category config.
         try {
             const id = appInfo.get_id();
-            const overrides = _loadOverrides();
+            const overrides = context ? context.overrides : _loadOverrides();
             if (overrides.has(id)) {
                 const overrideCategory = overrides.get(id).category;
                 const catConfig = currentCategories.find(c => _categoryNamesEqual(c.name, overrideCategory));

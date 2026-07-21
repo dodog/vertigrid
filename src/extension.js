@@ -31,6 +31,7 @@ export default class VerticalAppGridExtension extends Extension {
         this._injectionManager = new InjectionManager();
         this._overviewShowingId = null;
         this._overviewReadyPollId = null;
+        this._dndDisconnected = false;
 
         this._getOverviewControls = () => Main.overview && Main.overview._overview ? Main.overview._overview._controls : null;
 
@@ -109,9 +110,9 @@ export default class VerticalAppGridExtension extends Extension {
         // Apply workspace visibility preference. Show or hide the workspace
         // preview panel based on the extension setting, and force a layout
         // refresh if needed.
-        this._updateWorkspacesVisibility = () => {
+        this._updateWorkspacesVisibility = (forceShow = false) => {
             try {
-                const show = this._settings.get_boolean('show-workspaces');
+                const show = forceShow || this._settings.get_boolean('show-workspaces');
                 const controls = this._overviewControls || this._getOverviewControls();
 
                 if (!controls) {
@@ -171,9 +172,10 @@ export default class VerticalAppGridExtension extends Extension {
             SEARCH: 2
         };
 
+        // _onOverviewReady() already calls _attachOverviewControls() and
+        // _setAppDisplayLayout() itself, so calling them again here first
+        // would just be redundant idempotent work.
         this._ensureOverviewConnections();
-        this._attachOverviewControls();
-        this._setAppDisplayLayout();
         this._onOverviewReady();
         this._startOverviewReadyPoll();
 
@@ -275,8 +277,11 @@ export default class VerticalAppGridExtension extends Extension {
                 global.stage.set_key_focus(extension._vertAppDisplay);
             }
 
-            // Disable drag and drop on the original app grid to prevent internal errors when rearranging app icons in the dash
-            extension._overviewControls.appDisplay._disconnectDnD();
+            // Disable drag and drop on the original app grid to prevent
+            if (!extension._dndDisconnected) {
+                extension._overviewControls.appDisplay._disconnectDnD();
+                extension._dndDisconnected = true;
+            }
         });
 
         // Fade out the app display when the search becomes active
@@ -350,7 +355,7 @@ export default class VerticalAppGridExtension extends Extension {
             this._settingsSignal = null;
         }
 
-        if (this._overviewShowingId && Main.overview && Main.overview.disconnect) {
+        if (this._overviewShowingId !== null && Main.overview && Main.overview.disconnect) {
             try {
                 Main.overview.disconnect(this._overviewShowingId);
             } catch (e) {}
@@ -359,10 +364,12 @@ export default class VerticalAppGridExtension extends Extension {
 
         this._stopOverviewReadyPoll();
 
-        // Restore workspace visibility when disabling
+        // Restore workspace visibility when disabling - forceShow=true so
+        // this actually restores them regardless of the current
+        // show-workspaces setting.
         try {
             if (this._updateWorkspacesVisibility) {
-                this._updateWorkspacesVisibility();
+                this._updateWorkspacesVisibility(true);
             }
         } catch (e) {}
 
@@ -372,6 +379,7 @@ export default class VerticalAppGridExtension extends Extension {
         // override instead of silently skipping it because this flag was
         // still true from the previous enable().
         this._appDisplayBoxOverrideInstalled = false;
+        this._dndDisconnected = false;
 
         this._settings = null;
         this._vertAppDisplay = null;

@@ -20,6 +20,7 @@ import {
 
 import {
     getCategoryOrder,
+    getCategoryContext,
     getAppCategory,
     setAppCategory,
     setCategoryOrder,
@@ -131,7 +132,6 @@ export const VerticalAppDisplay = GObject.registerClass(
             this.add_child(this._mainBox);
 
             this._navItems = [];
-            this._navButtons = {};
             this._categoryOrder = [];
             this._navAnim = null;
             this._bottomSpacer = null;
@@ -197,6 +197,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                     case 'category-grouping':
                     case 'show-favorites-in-app-grid':
                     case 'category-font-size':
+                    case 'custom-categories':
                         return this._redisplay();
 
                     case 'icon-spacing':
@@ -208,18 +209,8 @@ export const VerticalAppDisplay = GObject.registerClass(
             }, this);
 
             // Clicking empty space in the app grid should hide the overview,
-            // same as clicking the background elsewhere. App icons and nav
-            // buttons already consume/stop their own button-release-event
-            // once they've handled a real click, so this only ever fires
-            // when the release event bubbles all the way up unclaimed -
-            // i.e. a genuine click on empty space, not on any widget.
+            // same as clicking the background elsewhere.
             this.connect('button-release-event', () => {
-                // Don't hide mid drag-and-drop - that release is finalizing
-                // a drop, not a click on empty space.
-                if (this._dragActor) {
-                    return Clutter.EVENT_PROPAGATE;
-                }
-
                 this._overview.hide();
                 return Clutter.EVENT_PROPAGATE;
             });
@@ -347,7 +338,8 @@ export const VerticalAppDisplay = GObject.registerClass(
                 this._favoritesLabel.hide();
                 this._favoritesView.hide();
 
-                const appsByCategory = this._loadAppsByCategory();
+                const categoryOrder = getCategoryOrder();
+                const appsByCategory = this._loadAppsByCategory(categoryOrder);
 
                 // First, add favorites section if enabled
                 if (favSection && appsByCategory._favorites.length > 0) {
@@ -381,7 +373,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                 }
 
                 // Then add category sections
-                for (const category of getCategoryOrder()) {
+                for (const category of categoryOrder) {
                     const appIds = appsByCategory[category] || [];
 
                     const label = this._createSectionHeader(_(category));
@@ -444,11 +436,11 @@ export const VerticalAppDisplay = GObject.registerClass(
                     }
                 }
 
-                this._buildCategoryNav(appsByCategory);
+                this._buildCategoryNav(appsByCategory, categoryOrder);
                 this._navBox.show();
             } else {
                 this._navBox.hide();
-                this._categoryOrder = [];
+                this._destroyCategoryNav();
                 // Original mode: Favorites and All Apps
                 // Show original labels and views
                 this._favoritesLabel.show();
@@ -573,7 +565,7 @@ export const VerticalAppDisplay = GObject.registerClass(
             this._scrollView.add_child(this._bottomSpacer);
         }
 
-        _buildCategoryNav(appsByCategory) {
+        _buildCategoryNav(appsByCategory, categoryOrder) {
             this._destroyCategoryNav();
 
             const visibleCategories = [];
@@ -585,7 +577,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                 });
             }
 
-            for (const category of getCategoryOrder()) {
+            for (const category of categoryOrder) {
                 visibleCategories.push({
                     id: category,
                     label: _(category)
@@ -669,7 +661,6 @@ export const VerticalAppDisplay = GObject.registerClass(
 
                 this._navBox.add_child(button);
                 this._navItems.push(button);
-                this._navButtons[item.id] = button;
             });
 
             if (this._navItems.length > 0 && !this._activeCategory) {
@@ -697,7 +688,6 @@ export const VerticalAppDisplay = GObject.registerClass(
             });
 
             this._navItems = [];
-            this._navButtons = {};
             this._activeCategory = null;
             this._categoryOrder = [];
 
@@ -748,15 +738,25 @@ export const VerticalAppDisplay = GObject.registerClass(
                 return;
             }
 
+            // Fix flicker through categories the scroll
+            this._suppressScrollActiveUpdate = true;
+            if (this._suppressScrollActiveUpdateTimeoutId) {
+                GLib.source_remove(this._suppressScrollActiveUpdateTimeoutId);
+            }
+            this._suppressScrollActiveUpdateTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 220, () => {
+                this._suppressScrollActiveUpdate = false;
+                this._suppressScrollActiveUpdateTimeoutId = null;
+                return GLib.SOURCE_REMOVE;
+            });
+
             this._scrollView.scrollToChild(target, 'top');
             this._setActiveCategory(category);
         }
 
         // Fades every button's label opacity and grows/shrinks its height to
         // show category names and give icons more breathing room on hover of
-        // the whole nav. Width is fixed and never touched here - independent
-        // of per-button hover, which only ever touches icon opacity (see
-        // _updateCategoryIconOpacity).
+        // the whole nav. Width is fixed and independent of per-button hover, 
+	// which only ever touches icon opacity (see _updateCategoryIconOpacity).
         _setNavCollapsed(collapsed, animate = true) {
             if (this._navTeardownInProgress) {
                 return;
@@ -872,6 +872,9 @@ export const VerticalAppDisplay = GObject.registerClass(
         // it stays correct across wheel scrolling, keyboard paging, and
         // programmatic scrolls (e.g. clicking a nav button) alike.
         _updateActiveCategoryFromScroll() {
+            if (this._suppressScrollActiveUpdate)
+                return;
+
             if (!this._categoryOrder || this._categoryOrder.length === 0)
                 return;
 
@@ -903,13 +906,20 @@ export const VerticalAppDisplay = GObject.registerClass(
             }
         }
 
-        _loadAppsByCategory() {
+        _loadAppsByCategory(categoryOrder) {
             const installedApps = this._appSystem.get_installed();
             const favSection = this._settings.get_boolean('favorites-section');
             const syncFavorites = this._settings.get_boolean('show-favorites-in-app-grid');
 
+            // Computed once per pass and reused for every app below - avoids
+            // getAppCategory() independently re-reading and re-parsing
+            // custom-categories/app-category-overrides from settings once
+            // per installed app, which is wasted work since both are the
+            // same for every app within a single _loadAppsByCategory() call.
+            const categoryContext = getCategoryContext();
+
             const appsByCategory = {};
-            for (const cat of getCategoryOrder()) {
+            for (const cat of categoryOrder) {
                 appsByCategory[cat] = [];
             }
             appsByCategory['Other'] = [];
@@ -931,7 +941,7 @@ export const VerticalAppDisplay = GObject.registerClass(
                         if (!syncFavorites) return;
                     }
 
-                    const category = getAppCategory(appInfo);
+                    const category = getAppCategory(appInfo, categoryContext);
 
                     // Defensive guard: getAppCategory() should only ever
                     // return a name that's a key here (a category from
@@ -1007,65 +1017,6 @@ export const VerticalAppDisplay = GObject.registerClass(
             }
 
             return appsByCategory;
-        }
-
-        _loadApps() {
-            const installedApps = this._appSystem.get_installed();
-
-            const favs = [];
-            const apps = [];
-
-            // Filter out hidden apps and split off favorites
-            const favSection = this._settings.get_boolean('favorites-section');
-
-            installedApps.forEach(appInfo => {
-                try {
-                    const appId = appInfo.get_id();
-                    const isFav = this._appFavorites.isFavorite(appId);
-
-                    if (this._parentalControls.shouldShowApp(appInfo)) {
-                        if (favSection && isFav) {
-                            favs.push(appInfo);
-                        } else {
-                            apps.push(appInfo);
-                        }
-                    }
-                } catch {}
-            });
-
-            // Sort favorites
-            const favSorting = this._settings.get_string('favorites-sorting');
-            const favIds = this._appFavorites._getIds();
-
-            favs.sort((a, b) => {
-                switch (favSorting) {
-                    case 'dash':
-                        return favIds.indexOf(a.get_id()) - favIds.indexOf(b.get_id());
-
-                    case 'usage':
-                        return this._appUsage.compare(a.get_id(), b.get_id()) || 0;
-
-                    case 'alphabetical':
-                    default:
-                        return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
-                }
-            });
-
-            // Sort apps
-            const appSorting = this._settings.get_string('app-sorting');
-
-            apps.sort((a, b) => {
-                switch (appSorting) {
-                    case 'usage':
-                        return this._appUsage.compare(a.get_id(), b.get_id()) || 0;
-
-                    case 'alphabetical':
-                    default:
-                        return a.get_name().toLowerCase().localeCompare(b.get_name().toLowerCase());
-                }
-            });
-
-            return [...favs, ...apps].map(appInfo => appInfo.get_id());
         }
 
         _redisplay() {
@@ -1710,6 +1661,11 @@ export const VerticalAppDisplay = GObject.registerClass(
 
             this._cancelDrag();
             this._cancelNavAnimation();
+
+            if (this._suppressScrollActiveUpdateTimeoutId) {
+                GLib.source_remove(this._suppressScrollActiveUpdateTimeoutId);
+                this._suppressScrollActiveUpdateTimeoutId = null;
+            }
 
             if (this._redisplayLater) {
                 this._laters.remove(this._redisplayLater);

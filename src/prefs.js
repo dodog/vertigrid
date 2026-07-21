@@ -362,12 +362,11 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
             }
         });
 
-        dialog.connect('close-request', () => {
-            if (onClosed) {
-                onClosed();
-            }
-            return false;
-        });
+        // destroy always fires regardless of how the dialog closes (window
+        // close button, Cancel, or a successful Save that calls
+        // dialog.destroy() itself), so onClosed() only needs to be wired up
+        // here - not also on close-request, which would otherwise call it
+        // a second time for the window-close-button path.
         dialog.connect('destroy', () => {
             if (onClosed) {
                 onClosed();
@@ -412,7 +411,7 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
             xalign: 0.5,
             wrap: true,
             justify: Gtk.Justification.CENTER,
-            label: _('Your custom category settings have been saved.\n\nYou need to log out and log back in for these changes to take effect.')
+            label: _('Your custom category settings have been saved and applied to the app grid.')
         });
         box.append(label);
 
@@ -549,8 +548,16 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
             const key = category.name.toLowerCase();
             const existingIndex = merged.findIndex(c => c.name.toLowerCase() === key);
             if (existingIndex >= 0) {
+                // Keep the built-in's own canonical-cased name rather than
+                // whatever casing the stored override happens to use (only
+                // reachable via manual GSettings edits outside this UI,
+                // since the editor itself always round-trips the canonical
+                // name for built-in rows) - a mismatched casing here would
+                // make the _(name) gettext lookup for the row label
+                // silently miss its translation.
                 merged[existingIndex] = {
                     ...category,
+                    name: merged[existingIndex].name,
                     isDefault: true
                 };
             } else {
@@ -569,6 +576,12 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
             settings.set_string(key, values[comboRow.selected]);
         });
 
-        comboRow.set_selected(values.indexOf(settings.get_string(key)));
+        // Falls back to the first option if the stored value doesn't match
+        // any known one (e.g. leftover from an older extension version, or
+        // a corrupted config) - indexOf returning -1 would otherwise be
+        // passed straight through to set_selected() with no valid row
+        // selected at all.
+        const index = values.indexOf(settings.get_string(key));
+        comboRow.set_selected(index >= 0 ? index : 0);
     }
 }
