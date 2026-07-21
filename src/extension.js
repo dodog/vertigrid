@@ -278,6 +278,12 @@ export default class VerticalAppGridExtension extends Extension {
             }
 
             // Disable drag and drop on the original app grid to prevent
+            // internal errors when rearranging app icons in the dash. This
+            // fires on every state-transition tick (effectively every
+            // animation frame while the overview is transitioning), so
+            // guard it to only actually run once per enable() cycle rather
+            // than repeatedly calling into the stock app display's DnD
+            // teardown for no reason on every frame.
             if (!extension._dndDisconnected) {
                 extension._overviewControls.appDisplay._disconnectDnD();
                 extension._dndDisconnected = true;

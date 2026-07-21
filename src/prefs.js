@@ -361,7 +361,7 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
                 try {
                     settings.set_string('custom-categories', JSON.stringify(categories));
                     closeDialog();
-                    this._showRestartNotice(window);
+                    this._showSavedNotice(window);
                 } catch (e) {
                     errorLabel.set_text(_('Failed to save custom categories: ') + e.message);
                     errorLabel.visible = true;
@@ -386,7 +386,7 @@ export default class EssentialTweaksPreferences extends ExtensionPreferences {
         dialog.present();
     }
 
-    _showRestartNotice(window) {
+    _showSavedNotice(window) {
         const noticeDialog = new Gtk.Dialog({
             transient_for: window,
             modal: true,
