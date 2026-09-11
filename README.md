@@ -1,9 +1,13 @@
+[![My GNOME Extensions](https://img.shields.io/badge/My_other_GNOME_Extensions-grey?style=for-the-badge&logo=gnome&logoColor=white)](#)
+[![Extension 1](https://img.shields.io/badge/-Gotify_notifications-blue?style=for-the-badge&logo=gnome&logoColor=white&labelColor=555555)](https://github.com/dodog/gotify-notifications)
+[![Extension 2](https://img.shields.io/badge/-Power_menu-orange?style=for-the-badge&logo=gnome&logoColor=white&labelColor=555555)](https://github.com/dodog/power-menu)
+[![Extension 3](https://img.shields.io/badge/-Vertigrid-green?style=for-the-badge&logo=gnome&logoColor=white&labelColor=555555)](https://github.com/dodog/vertigrid)
+
+
+
 # VERTIgrid
 
 **A vertical app grid for GNOME Shell with category grouping, navigation, and drag-and-drop support.**
-
-[![Gnome extension](https://img.shields.io/badge/GNOME%20Shell-48,%2049,%2050-blue)](https://extensions.gnome.org/extension/)
-[![Licence](https://img.shields.io/badge/license-GPL--3.0-green)](https://www.gnu.org/licenses/gpl-3.0.html)
 
 <img width="64" height="64" alt="vertigrid-logo" src="https://github.com/user-attachments/assets/33f8ed35-3e39-4f06-8457-b21fc2eaadc1" align="left"/>
 
