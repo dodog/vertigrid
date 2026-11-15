@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: vertigrid 1.0\n"
 "Report-Msgid-Bugs-To: https://github.com/dodog/vertigrid/issues\n"
-"POT-Creation-Date: 2026-08-28 13:42+0200\n"
+"POT-Creation-Date: 2026-11-15 11:59+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,196 +17,192 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: extension.js:312
-msgid "Remove from Favorites"
-msgstr ""
-
-#: extension.js:313
-msgid "Add to Favorites"
-msgstr ""
-
-#: extension.js:324
-msgid "Hide this app"
-msgstr ""
-
-#: categories.js:48
+#: categories.js:11
 msgid "Development"
 msgstr ""
 
-#: categories.js:53
+#: categories.js:12
 msgid "Office"
 msgstr ""
 
-#: categories.js:58
+#: categories.js:13
 msgid "Network"
 msgstr ""
 
-#: categories.js:63
+#: categories.js:14
 msgid "AudioVideo"
 msgstr ""
 
-#: categories.js:68
+#: categories.js:15
 msgid "Audio"
 msgstr ""
 
-#: categories.js:73
+#: categories.js:16
 msgid "Video"
 msgstr ""
 
-#: categories.js:78
+#: categories.js:17
 msgid "Graphics"
 msgstr ""
 
-#: categories.js:83
+#: categories.js:18
 msgid "Education"
 msgstr ""
 
-#: categories.js:88
+#: categories.js:19
 msgid "Game"
 msgstr ""
 
-#: categories.js:93
+#: categories.js:20
 msgid "Utility"
 msgstr ""
 
-#: categories.js:98
+#: categories.js:21
 msgid "Accessories"
 msgstr ""
 
-#: categories.js:103
+#: categories.js:22
 msgid "System"
 msgstr ""
 
-#: categories.js:108
+#: categories.js:23
 msgid "Settings"
 msgstr ""
 
-#: appDisplay.js:99 appDisplay.js:393 appDisplay.js:622
+#: appDisplay.js:70 categoryNav.js:58
 msgid "Favorites"
 msgstr ""
 
-#: appDisplay.js:106
+#: appDisplay.js:72
 msgid "All Apps"
 msgstr ""
 
-#: appDisplay.js:457 appDisplay.js:636
+#: categoryNav.js:60
 msgid "Other"
 msgstr ""
 
-#: prefs.js:66 prefs.js:72
-msgid "Hidden Apps"
+#: appMenuOverrides.js:49
+msgid "Remove from Favorites"
 msgstr ""
 
-#: prefs.js:73
-msgid ""
-"Apps hidden from this extension’s app grid via its right-click menu. They "
-"still appear everywhere else (search, other launchers, the system app menu)."
+#: appMenuOverrides.js:50
+msgid "Add to Favorites"
 msgstr ""
 
-#: prefs.js:83
-msgid "No apps are currently hidden."
+#: appMenuOverrides.js:61
+msgid "Hide this app"
 msgstr ""
 
-#: prefs.js:127
-msgid "Restore"
-msgstr ""
-
-#: prefs.js:171
+#: prefs/categoryEditor.js:27
 msgid "Add category"
 msgstr ""
 
-#: prefs.js:183
+#: prefs/categoryEditor.js:36
 msgid "Save Custom Categories"
 msgstr ""
 
-#: prefs.js:231
-msgid "Category name (e.g. Fonts)"
-msgstr ""
-
-#: prefs.js:242
-msgid "Enabled"
-msgstr ""
-
-#: prefs.js:264
-msgid "Built-in"
-msgstr ""
-
-#: prefs.js:279
-msgid "Merge into another category"
-msgstr ""
-
-#: prefs.js:286
-msgid "Target category name (e.g. Webdesign)"
-msgstr ""
-
-#: prefs.js:311
-msgid "Custom order"
-msgstr ""
-
-#: prefs.js:330
-msgid "Lower numbers appear first"
-msgstr ""
-
-#: prefs.js:363 prefs.js:381
-msgid "Default icon"
-msgstr ""
-
-#: prefs.js:372
-msgid "Choose Icon…"
-msgstr ""
-
-#: prefs.js:440
+#: prefs/categoryEditor.js:129
 msgid "Default categories"
 msgstr ""
 
-#: prefs.js:478
-msgid "Failed to save custom categories: "
+#: prefs/categoryEditor.js:194
+msgid "Category name (e.g. Fonts)"
 msgstr ""
 
-#: prefs.js:490
+#: prefs/categoryEditor.js:204
+msgid "Enabled"
+msgstr ""
+
+#: prefs/categoryEditor.js:216
+msgid "Built-in"
+msgstr ""
+
+#: prefs/categoryEditor.js:240
+msgid "Merge into another category"
+msgstr ""
+
+#: prefs/categoryEditor.js:247
+msgid "Target category name (e.g. Webdesign)"
+msgstr ""
+
+#: prefs/categoryEditor.js:273
+msgid "Custom order"
+msgstr ""
+
+#: prefs/categoryEditor.js:292
+msgid "Lower numbers appear first"
+msgstr ""
+
+#: prefs/categoryEditor.js:324 prefs/categoryEditor.js:342
+msgid "Default icon"
+msgstr ""
+
+#: prefs/categoryEditor.js:333
+msgid "Choose Icon…"
+msgstr ""
+
+#: prefs/categoryEditor.js:353
 msgid "Custom Categories Saved"
 msgstr ""
 
-#: prefs.js:495
+#: prefs/categoryEditor.js:358
 msgid "OK"
 msgstr ""
 
-#: prefs.js:521
+#: prefs/categoryEditor.js:382
 msgid ""
 "Your custom category settings have been \n"
 "saved and applied to the app grid."
 msgstr ""
 
-#: prefs.js:540
-msgid "Choose an Icon"
-msgstr ""
-
-#: prefs.js:546
-msgid "Cancel"
-msgstr ""
-
-#: prefs.js:547
-msgid "Use Default Icon"
-msgstr ""
-
-#: prefs.js:552
-msgid "Search symbolic icons (e.g. mail, folder, web)…"
-msgstr ""
-
-#: prefs.js:580
-msgid "Start typing to search your system’s symbolic icons."
-msgstr ""
-
-#: prefs.js:693
+#: prefs/categoryEditor.js:412
 msgid "Duplicate category name: "
 msgstr ""
 
-#: prefs.js:707
+#: prefs/categoryEditor.js:423
 msgid "Enter a target category to merge \""
 msgstr ""
 
-#: prefs.js:707
+#: prefs/categoryEditor.js:423
 msgid "\" into, or uncheck \"Merge into another category\"."
+msgstr ""
+
+#: prefs/hiddenApps.js:11 prefs/hiddenApps.js:17
+msgid "Hidden Apps"
+msgstr ""
+
+#: prefs/hiddenApps.js:18
+msgid ""
+"Apps hidden from this extension’s app grid via its right-click menu. They "
+"still appear everywhere else (search, other launchers, the system app menu)."
+msgstr ""
+
+#: prefs/hiddenApps.js:28
+msgid "No apps are currently hidden."
+msgstr ""
+
+#: prefs/hiddenApps.js:82
+msgid "Restore"
+msgstr ""
+
+#: prefs/iconChooser.js:14
+msgid "Choose an Icon"
+msgstr ""
+
+#: prefs/iconChooser.js:20
+msgid "Cancel"
+msgstr ""
+
+#: prefs/iconChooser.js:21
+msgid "Use Default Icon"
+msgstr ""
+
+#: prefs/iconChooser.js:26
+msgid "Search symbolic icons (e.g. mail, folder, web)…"
+msgstr ""
+
+#: prefs/iconChooser.js:54
+msgid "Start typing to search your system’s symbolic icons."
 msgstr ""
 
 #: prefs.ui:7

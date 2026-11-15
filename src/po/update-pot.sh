@@ -10,7 +10,8 @@ xgettext \
   --package-version="1.0" \
   --msgid-bugs-address="https://github.com/dodog/vertigrid/issues" \
   --output=po/js-strings.pot \
-  extension.js categories.js appDisplay.js prefs.js
+  extension.js categories.js appDisplay.js categoryNav.js appMenuOverrides.js \
+  prefs.js prefs/categoryEditor.js prefs/hiddenApps.js prefs/iconChooser.js
 
 xgettext \
   --from-code=UTF-8 \

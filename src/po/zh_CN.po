@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VertiGrid 1.0\n"
 "Report-Msgid-Bugs-To: https://github.com/dodog/vertigrid/issues\n"
-"POT-Creation-Date: 2026-08-28 13:42+0200\n"
+"POT-Creation-Date: 2026-11-15 11:59+0100\n"
 "PO-Revision-Date: \n"
 "Last-Translator: \n"
 "Language-Team: \n"
@@ -12,199 +12,194 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: Poedit 3.9\n"
 
-#: extension.js:312
-msgid "Remove from Favorites"
-msgstr "移除"
-
-#: extension.js:313
-msgid "Add to Favorites"
-msgstr "收藏"
-
-#: extension.js:324
-msgid "Hide this app"
-msgstr ""
-
-#: categories.js:48
+#: categories.js:11
 msgid "Development"
 msgstr "开发工具"
 
-#: categories.js:53
+#: categories.js:12
 msgid "Office"
 msgstr "办公软件"
 
-#: categories.js:58
+#: categories.js:13
 msgid "Network"
 msgstr "网络工具"
 
-#: categories.js:63
+#: categories.js:14
 msgid "AudioVideo"
 msgstr "多媒体"
 
-#: categories.js:68
+#: categories.js:15
 msgid "Audio"
 msgstr "音频"
 
-#: categories.js:73
+#: categories.js:16
 msgid "Video"
 msgstr "视频"
 
-#: categories.js:78
+#: categories.js:17
 msgid "Graphics"
 msgstr "图像图形"
 
-#: categories.js:83
+#: categories.js:18
 msgid "Education"
 msgstr "教育软件"
 
-#: categories.js:88
+#: categories.js:19
 msgid "Game"
 msgstr "游戏"
 
-#: categories.js:93
+#: categories.js:20
 msgid "Utility"
 msgstr "小工具"
 
-#: categories.js:98
+#: categories.js:21
 msgid "Accessories"
 msgstr "附件"
 
-#: categories.js:103
+#: categories.js:22
 msgid "System"
 msgstr "系统工具"
 
-#: categories.js:108
+#: categories.js:23
 msgid "Settings"
 msgstr "系统设置"
 
-#: appDisplay.js:99 appDisplay.js:393 appDisplay.js:622
+#: appDisplay.js:70 categoryNav.js:58
 msgid "Favorites"
 msgstr "收藏夹"
 
-#: appDisplay.js:106
+#: appDisplay.js:72
 msgid "All Apps"
 msgstr "所有应用"
 
-#: appDisplay.js:457 appDisplay.js:636
+#: categoryNav.js:60
 msgid "Other"
 msgstr "其他"
 
-#: prefs.js:66 prefs.js:72
-msgid "Hidden Apps"
+#: appMenuOverrides.js:49
+msgid "Remove from Favorites"
+msgstr "移除"
+
+#: appMenuOverrides.js:50
+msgid "Add to Favorites"
+msgstr "收藏"
+
+#: appMenuOverrides.js:61
+msgid "Hide this app"
 msgstr ""
 
-#: prefs.js:73
-msgid ""
-"Apps hidden from this extension’s app grid via its right-click menu. They "
-"still appear everywhere else (search, other launchers, the system app menu)."
-msgstr ""
-
-#: prefs.js:83
-msgid "No apps are currently hidden."
-msgstr ""
-
-#: prefs.js:127
-msgid "Restore"
-msgstr ""
-
-#: prefs.js:171
+#: prefs/categoryEditor.js:27
 msgid "Add category"
 msgstr ""
 
-#: prefs.js:183
+#: prefs/categoryEditor.js:36
 #, fuzzy
 msgid "Save Custom Categories"
 msgstr "编辑分组配置"
 
-#: prefs.js:231
-msgid "Category name (e.g. Fonts)"
-msgstr ""
-
-#: prefs.js:242
-msgid "Enabled"
-msgstr ""
-
-#: prefs.js:264
-msgid "Built-in"
-msgstr ""
-
-#: prefs.js:279
-msgid "Merge into another category"
-msgstr ""
-
-#: prefs.js:286
-msgid "Target category name (e.g. Webdesign)"
-msgstr ""
-
-#: prefs.js:311
-msgid "Custom order"
-msgstr ""
-
-#: prefs.js:330
-msgid "Lower numbers appear first"
-msgstr ""
-
-#: prefs.js:363 prefs.js:381
-msgid "Default icon"
-msgstr ""
-
-#: prefs.js:372
-msgid "Choose Icon…"
-msgstr ""
-
-#: prefs.js:440
+#: prefs/categoryEditor.js:129
 msgid "Default categories"
 msgstr ""
 
-#: prefs.js:478
-#, fuzzy
-msgid "Failed to save custom categories: "
-msgstr "编辑分组配置"
+#: prefs/categoryEditor.js:194
+msgid "Category name (e.g. Fonts)"
+msgstr ""
 
-#: prefs.js:490
+#: prefs/categoryEditor.js:204
+msgid "Enabled"
+msgstr ""
+
+#: prefs/categoryEditor.js:216
+msgid "Built-in"
+msgstr ""
+
+#: prefs/categoryEditor.js:240
+msgid "Merge into another category"
+msgstr ""
+
+#: prefs/categoryEditor.js:247
+msgid "Target category name (e.g. Webdesign)"
+msgstr ""
+
+#: prefs/categoryEditor.js:273
+msgid "Custom order"
+msgstr ""
+
+#: prefs/categoryEditor.js:292
+msgid "Lower numbers appear first"
+msgstr ""
+
+#: prefs/categoryEditor.js:324 prefs/categoryEditor.js:342
+msgid "Default icon"
+msgstr ""
+
+#: prefs/categoryEditor.js:333
+msgid "Choose Icon…"
+msgstr ""
+
+#: prefs/categoryEditor.js:353
 #, fuzzy
 msgid "Custom Categories Saved"
 msgstr "编辑分组配置"
 
-#: prefs.js:495
+#: prefs/categoryEditor.js:358
 msgid "OK"
 msgstr ""
 
-#: prefs.js:521
+#: prefs/categoryEditor.js:382
 msgid ""
 "Your custom category settings have been \n"
 "saved and applied to the app grid."
 msgstr ""
 
-#: prefs.js:540
-msgid "Choose an Icon"
-msgstr ""
-
-#: prefs.js:546
-msgid "Cancel"
-msgstr ""
-
-#: prefs.js:547
-msgid "Use Default Icon"
-msgstr ""
-
-#: prefs.js:552
-msgid "Search symbolic icons (e.g. mail, folder, web)…"
-msgstr ""
-
-#: prefs.js:580
-msgid "Start typing to search your system’s symbolic icons."
-msgstr ""
-
-#: prefs.js:693
+#: prefs/categoryEditor.js:412
 msgid "Duplicate category name: "
 msgstr ""
 
-#: prefs.js:707
+#: prefs/categoryEditor.js:423
 msgid "Enter a target category to merge \""
 msgstr ""
 
-#: prefs.js:707
+#: prefs/categoryEditor.js:423
 msgid "\" into, or uncheck \"Merge into another category\"."
+msgstr ""
+
+#: prefs/hiddenApps.js:11 prefs/hiddenApps.js:17
+msgid "Hidden Apps"
+msgstr ""
+
+#: prefs/hiddenApps.js:18
+msgid ""
+"Apps hidden from this extension’s app grid via its right-click menu. They "
+"still appear everywhere else (search, other launchers, the system app menu)."
+msgstr ""
+
+#: prefs/hiddenApps.js:28
+msgid "No apps are currently hidden."
+msgstr ""
+
+#: prefs/hiddenApps.js:82
+msgid "Restore"
+msgstr ""
+
+#: prefs/iconChooser.js:14
+msgid "Choose an Icon"
+msgstr ""
+
+#: prefs/iconChooser.js:20
+msgid "Cancel"
+msgstr ""
+
+#: prefs/iconChooser.js:21
+msgid "Use Default Icon"
+msgstr ""
+
+#: prefs/iconChooser.js:26
+msgid "Search symbolic icons (e.g. mail, folder, web)…"
+msgstr ""
+
+#: prefs/iconChooser.js:54
+msgid "Start typing to search your system’s symbolic icons."
 msgstr ""
 
 #: prefs.ui:7
@@ -329,6 +324,10 @@ msgid ""
 "can also set a custom sort order for any category, built-in or custom — "
 "lower numbers appear first."
 msgstr ""
+
+#, fuzzy
+#~ msgid "Failed to save custom categories: "
+#~ msgstr "编辑分组配置"
 
 #~ msgid "Customization"
 #~ msgstr "自定义"
