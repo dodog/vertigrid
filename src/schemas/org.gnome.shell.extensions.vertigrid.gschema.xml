@@ -48,7 +48,8 @@
 
     <key name="app-category-overrides" type="as">
       <default>[]</default>
-      <summary>Per-app category overrides in the form 'appId::Category'</summary>
+      <summary>Per-app category placement and order</summary>
+      <description>One JSON object per entry, with the application ID, the category it is placed in, and its position within that category. Written by drag-and-drop in the app grid.</description>
     </key>
 
     <key name="custom-categories" type="s">
