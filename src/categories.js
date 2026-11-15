@@ -3,458 +3,194 @@ Category config and custom category storage helpers.
 Custom categories are saved under 'custom-categories' and survive updates.
 */
 
-// Marks a string for translation extraction (xgettext) without translating
-// it here. These are internal category IDs (also matched against .desktop
-// Categories= keys), so they must stay untranslated at this point - the
-// actual translation happens later, at display time, via _(category.name)
-// in appDisplay.js and prefs.js.
+// Marks strings for xgettext without translating them: these are also matched
+// against .desktop Categories= keys, so they are translated at display time.
 const N_ = s => s;
 
-// Settings helpers and category utilities used by the extension and prefs.
-// Safe/settings helper functions used by the extension and preferences UI.
-export function getSettingsString(settings, key, fallback = '') {
-    if (!settings) {
-        return fallback;
-    }
-
-    try {
-        return settings.get_string(key) || fallback;
-    } catch (e) {
-        console.debug(`vertigrid: Failed to read ${key}: ${e}`);
-        return fallback;
-    }
-}
-
-export function getSettingsStrv(settings, key, fallback = []) {
-    if (!settings) {
-        return fallback;
-    }
-
-    try {
-        return settings.get_strv(key) || fallback;
-    } catch (e) {
-        console.debug(`vertigrid: Failed to read ${key}: ${e}`);
-        return fallback;
-    }
-}
-
-// Built-in default categories shown when no custom categories are set.
-// Names are wrapped in N_() purely so xgettext extracts them into the
-// .pot file; N_() is an identity function, so DEFAULT_CATEGORIES[i].name
-// is still the plain, untranslated string (e.g. 'Development') used
-// internally for matching/storage/config. Translation happens later, at
-// display time, wherever _(category.name) is called.
-export const DEFAULT_CATEGORIES = [{
-        name: N_('Development'),
-        enabled: true,
-        merge: false
-    },
-    {
-        name: N_('Office'),
-        enabled: true,
-        merge: false
-    },
-    {
-        name: N_('Network'),
-        enabled: true,
-        merge: false
-    },
-    {
-        name: N_('AudioVideo'),
-        enabled: false,
-        merge: false
-    },
-    {
-        name: N_('Audio'),
-        enabled: true,
-        merge: false
-    },
-    {
-        name: N_('Video'),
-        enabled: true,
-        merge: false
-    },
-    {
-        name: N_('Graphics'),
-        enabled: true,
-        merge: false
-    },
-    {
-        name: N_('Education'),
-        enabled: true,
-        merge: false
-    },
-    {
-        name: N_('Game'),
-        enabled: true,
-        merge: false
-    },
-    {
-        name: N_('Utility'),
-        enabled: true,
-        merge: false
-    },
-    {
-        name: N_('Accessories'),
-        enabled: true,
-        merge: false
-    },
-    {
-        name: N_('System'),
-        enabled: true,
-        merge: false
-    },
-    {
-        name: N_('Settings'),
-        enabled: true,
-        merge: false
-    }
+const DEFAULT_CATEGORIES = [
+    {name: N_('Development'), enabled: true, merge: false},
+    {name: N_('Office'), enabled: true, merge: false},
+    {name: N_('Network'), enabled: true, merge: false},
+    {name: N_('AudioVideo'), enabled: false, merge: false},
+    {name: N_('Audio'), enabled: true, merge: false},
+    {name: N_('Video'), enabled: true, merge: false},
+    {name: N_('Graphics'), enabled: true, merge: false},
+    {name: N_('Education'), enabled: true, merge: false},
+    {name: N_('Game'), enabled: true, merge: false},
+    {name: N_('Utility'), enabled: true, merge: false},
+    {name: N_('Accessories'), enabled: true, merge: false},
+    {name: N_('System'), enabled: true, merge: false},
+    {name: N_('Settings'), enabled: true, merge: false}
 ];
 
-// Normalize stored or user-provided category objects to a consistent shape
-// before they are merged with defaults and displayed.
+// Stored categories are user-editable JSON, so normalize them before merging.
 function _normalizeCategory(category, defaultOrder) {
-    if (!category || typeof category !== 'object') {
+    if (!category || typeof category !== 'object')
         return null;
-    }
 
     const name = category.name ? String(category.name).trim() : '';
-    if (!name) {
+    if (!name)
         return null;
-    }
 
-    let enabled = true;
-    if (Object.hasOwn(category, 'enabled')) {
-        enabled = Boolean(category.enabled);
-    }
+    const enabled = Object.hasOwn(category, 'enabled') ? Boolean(category.enabled) : true;
 
     let merge = false;
-    if (Object.hasOwn(category, 'merge')) {
-        if (category.merge === false || category.merge === null) {
-            merge = false;
-        } else {
-            merge = String(category.merge).trim();
-            if (merge === '') {
-                merge = false;
-            }
-        }
-    }
+    if (category.merge)
+        merge = String(category.merge).trim() || false;
 
     const orderValue = Number(category.order);
     const order = Number.isFinite(orderValue) ? orderValue : null;
 
-    let icon = null;
-    if (Object.hasOwn(category, 'icon')) {
-        const trimmedIcon = category.icon ? String(category.icon).trim() : '';
-        icon = trimmedIcon || null;
-    }
+    const icon = category.icon ? String(category.icon).trim() || null : null;
 
-    return {
-        name,
-        enabled,
-        merge,
-        order,
-        icon,
-        _defaultOrder: defaultOrder
-    };
+    return {name, enabled, merge, order, icon, _defaultOrder: defaultOrder};
 }
 
-// Read the saved custom categories JSON from settings and normalize it.
 function _loadCustomCategories(settings) {
-    const raw = getSettingsString(settings, 'custom-categories', '[]');
+    let parsed;
     try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) {
-            return [];
-        }
-
-        return parsed
-            .map((category, index) => _normalizeCategory(category, DEFAULT_CATEGORIES.length + index))
-            .filter(Boolean);
+        parsed = JSON.parse(settings.get_string('custom-categories'));
     } catch (e) {
         console.debug(`vertigrid: Failed to parse custom categories: ${e}`);
         return [];
     }
+
+    if (!Array.isArray(parsed))
+        return [];
+
+    return parsed
+        .map((category, index) => _normalizeCategory(category, DEFAULT_CATEGORIES.length + index))
+        .filter(Boolean);
 }
 
 function _categoryNamesEqual(a, b) {
     return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 }
 
-// Build the effective category list by merging built-in defaults with any
-// custom category overrides stored in settings.
-export function getCategories(settings) {
+// The built-in categories with any stored overrides applied, followed by the
+// custom ones, in the order the editor lists them (not sorted for display).
+export function loadCategories(settings) {
     const categories = DEFAULT_CATEGORIES.map((category, index) => ({
         ...category,
         order: null,
         icon: null,
+        isDefault: true,
         _defaultOrder: index
     }));
 
-    const customCategories = _loadCustomCategories(settings);
-    for (const customCategory of customCategories) {
-        const existingIndex = categories.findIndex(category => _categoryNamesEqual(category.name, customCategory.name));
-        if (existingIndex >= 0) {
-            categories[existingIndex] = {
-                ...categories[existingIndex],
-                ...customCategory
-            };
+    for (const customCategory of _loadCustomCategories(settings)) {
+        const existing = categories.find(category => _categoryNamesEqual(category.name, customCategory.name));
+        if (existing) {
+            // An override of a built-in keeps the built-in's own name and position
+            Object.assign(existing, customCategory, {
+                name: existing.name,
+                _defaultOrder: existing._defaultOrder
+            });
         } else {
-            categories.push(customCategory);
+            categories.push({...customCategory, isDefault: false});
         }
     }
-
-    categories.sort((a, b) => {
-        const aOrder = Number.isFinite(a.order) ? a.order : a._defaultOrder;
-        const bOrder = Number.isFinite(b.order) ? b.order : b._defaultOrder;
-        return aOrder - bOrder;
-    });
 
     return categories;
 }
 
+function getCategories(settings) {
+    return loadCategories(settings).sort((a, b) => {
+        const aOrder = Number.isFinite(a.order) ? a.order : a._defaultOrder;
+        const bOrder = Number.isFinite(b.order) ? b.order : b._defaultOrder;
+        return aOrder - bOrder;
+    });
+}
+
 export function getCategoryOrder(settings) {
     return getCategories(settings)
-        .filter(cat => cat.enabled && !cat.merge)
-        .map(cat => cat.name);
+        .filter(category => category.enabled && !category.merge)
+        .map(category => category.name);
 }
 
-export function getAllCategories(settings) {
-    return [...getCategories(settings).map(cat => cat.name), 'Other'];
-}
-
-// Returns Map category name -> icon name, containing only categories that
-// have an explicit custom icon set (via a custom-categories entry, either
-// a new category or one overriding a default's icon). Categories with no
-// entry here should fall back to their own built-in default icon.
+// Category name -> custom icon name, for categories that have one.
 export function getCategoryIconMap(settings) {
     const map = new Map();
     for (const category of getCategories(settings)) {
-        if (category.icon) {
+        if (category.icon)
             map.set(category.name, category.icon);
-        }
     }
     return map;
 }
 
-// app-category-overrides stores one JSON string per strv element
-function _encodeOverrideEntry(appId, category, index) {
-    return JSON.stringify({
-        id: appId,
-        category,
-        index: (index !== null && index !== undefined) ? Math.floor(index) : null
-    });
-}
-
+// app-category-overrides stores one JSON string per strv element.
 function _parseOverrideEntry(entry) {
+    let parsed;
     try {
-        const parsed = JSON.parse(entry);
-        if (!parsed || typeof parsed !== 'object' || !parsed.id || !parsed.category) {
-            return null;
-        }
-
-        let index = null;
-        if (parsed.index !== null && parsed.index !== undefined) {
-            const numericIndex = Number(parsed.index);
-            index = Number.isFinite(numericIndex) ? numericIndex : null;
-        }
-
-        return {
-            id: String(parsed.id),
-            category: String(parsed.category),
-            index
-        };
+        parsed = JSON.parse(entry);
     } catch (e) {
         console.debug(`vertigrid: Failed to parse app category override entry: ${e}`);
         return null;
     }
+
+    if (!parsed || typeof parsed !== 'object' || !parsed.id || !parsed.category)
+        return null;
+
+    const numericIndex = Number(parsed.index);
+    const index = parsed.index !== null && parsed.index !== undefined && Number.isFinite(numericIndex)
+        ? numericIndex
+        : null;
+
+    return {id: String(parsed.id), category: String(parsed.category), index};
 }
 
-function _removeOverrideEntriesForApp(arr, appId) {
-    return arr.filter(entry => {
-        const parsed = _parseOverrideEntry(entry);
-        return !parsed || parsed.id !== appId;
-    });
-}
-
+// Map of appId -> {category, index}
 function _loadOverrides(settings) {
-    const arr = getSettingsStrv(settings, 'app-category-overrides', []);
-    // Map of appId -> { category: string, index: number|null }
     const map = new Map();
-    for (const entry of arr) {
+    for (const entry of settings.get_strv('app-category-overrides')) {
         const parsed = _parseOverrideEntry(entry);
-        if (!parsed) {
-            continue;
-        }
-        map.set(parsed.id, {
-            category: parsed.category,
-            index: parsed.index
-        });
+        if (parsed)
+            map.set(parsed.id, {category: parsed.category, index: parsed.index});
     }
     return map;
 }
 
-export function setAppCategory(settings, appId, category, index = null) {
-    if (!settings) {
-        return false;
-    }
-
-    try {
-        const arr = settings.get_strv('app-category-overrides') || [];
-        const overrides = arr
-            .map(_parseOverrideEntry)
-            .filter(Boolean)
-            .filter(entry => entry.id !== appId);
-
-        if (!category || category === 'Other') {
-            settings.set_strv('app-category-overrides', overrides.map(entry => _encodeOverrideEntry(entry.id, entry.category, entry.index)));
-            return true;
-        }
-
-        const numericIndex = Number.isFinite(Number(index)) ? Number(index) : null;
-        const target = overrides
-            .filter(entry => entry.category === category && entry.index !== null)
-            .sort((a, b) => a.index - b.index);
-        const others = overrides.filter(entry => entry.category !== category || entry.index === null);
-
-        const result = [...others];
-        if (numericIndex === null) {
-            result.push({
-                id: appId,
-                category,
-                index: null
-            });
-        } else {
-            const insertPos = Math.max(0, Math.min(numericIndex, target.length));
-            const ordered = [];
-
-            for (let i = 0; i < insertPos; i++) {
-                ordered.push({
-                    id: target[i].id,
-                    category,
-                    index: i
-                });
-            }
-            ordered.push({
-                id: appId,
-                category,
-                index: insertPos
-            });
-            for (let i = insertPos; i < target.length; i++) {
-                ordered.push({
-                    id: target[i].id,
-                    category,
-                    index: i + 1
-                });
-            }
-
-            result.push(...ordered);
-        }
-
-        settings.set_strv('app-category-overrides', result.map(entry => _encodeOverrideEntry(entry.id, entry.category, entry.index)));
-        return true;
-    } catch (e) {
-        console.debug(`vertigrid: Failed to set app category override: ${e}`);
-        return false;
-    }
-}
-
-export function clearAppCategory(settings, appId) {
-    if (!settings) {
-        return false;
-    }
-
-    try {
-        const arr = settings.get_strv('app-category-overrides') || [];
-        const filtered = _removeOverrideEntriesForApp(arr, appId);
-        settings.set_strv('app-category-overrides', filtered);
-        return true;
-    } catch (e) {
-        console.debug(`vertigrid: Failed to clear app category override: ${e}`);
-        return false;
-    }
-}
-
-/**
- * Write explicit indexes for every app in a category so the order is
- * consistent after drag-and-drop reordering.
- */
+// Writes an explicit index for every app in the category. An override for
+// 'Other' only carries ordering, since 'Other' is not a configured category.
 export function setCategoryOrder(settings, category, orderedAppIds) {
-    if (!settings) {
-        return false;
-    }
+    const reindexedIds = new Set(orderedAppIds);
 
-    try {
-        const arr = settings.get_strv('app-category-overrides') || [];
-        const reindexedIds = new Set(orderedAppIds);
+    // Drop any existing entry (in any category) for ids that get a fresh placement.
+    const overrides = settings.get_strv('app-category-overrides')
+        .map(_parseOverrideEntry)
+        .filter(entry => entry && !reindexedIds.has(entry.id));
 
-        // Drop any existing entry (in ANY category) for every id that's
-        // getting a fresh, authoritative placement below.
-        const overrides = arr
-            .map(_parseOverrideEntry)
-            .filter(Boolean)
-            .filter(entry => !reindexedIds.has(entry.id));
+    orderedAppIds.forEach((id, index) => overrides.push({id, category, index}));
 
-        // Write an explicit index for every app, including ones landing in
-        // 'Other'. 'Other' isn't a real configured category (it's never
-        // in currentCategories in getAppCategory() below), so an override
-        // entry here can only ever supply ordering metadata for the Other
-        // bucket - it can't accidentally "pin" an app there the way an
-        // override for a real category name would, so there's no downside
-        // to always persisting it. This also allows apps to be reordered
-        // within Other via drag-and-drop, same as any other category.
-        orderedAppIds.forEach((appId, index) => {
-            overrides.push({
-                id: appId,
-                category,
-                index
-            });
-        });
-
-        settings.set_strv('app-category-overrides', overrides.map(entry => _encodeOverrideEntry(entry.id, entry.category, entry.index)));
-        return true;
-    } catch (e) {
-        console.debug(`vertigrid: Failed to set category order: ${e}`);
-        return false;
-    }
+    settings.set_strv('app-category-overrides', overrides.map(entry => JSON.stringify({
+        id: entry.id,
+        category: entry.category,
+        index: entry.index
+    })));
 }
 
+// Category -> appIds sorted by index.
 export function getCategoryOrderMap(settings) {
-    // Returns Map category -> array of appIds sorted by index (asc)
-    const overrides = getSettingsStrv(settings, 'app-category-overrides', []);
     const buckets = new Map();
-    for (const entry of overrides) {
+    for (const entry of settings.get_strv('app-category-overrides')) {
         const parsed = _parseOverrideEntry(entry);
-        if (!parsed || parsed.index === null) {
+        if (!parsed || parsed.index === null)
             continue;
-        }
-        if (!buckets.has(parsed.category)) {
+
+        if (!buckets.has(parsed.category))
             buckets.set(parsed.category, []);
-        }
-        buckets.get(parsed.category).push({
-            id: parsed.id,
-            index: parsed.index
-        });
+        buckets.get(parsed.category).push(parsed);
     }
+
     const result = new Map();
-    for (const [cat, arr] of buckets) {
-        arr.sort((a, b) => a.index - b.index);
-        result.set(cat, arr.map(x => x.id));
-    }
+    for (const [category, entries] of buckets)
+        result.set(category, entries.sort((a, b) => a.index - b.index).map(entry => entry.id));
+
     return result;
 }
 
-function _isValidTargetCategory(currentCategories, name) {
-    // Only return enabled, non-merged categories to avoid invalid buckets.
-    return currentCategories.some(c =>
-        c.enabled && !c.merge && _categoryNamesEqual(c.name, name)
-    );
-}
-
-/**
- * Precompute the pieces getAppCategory() needs - the merged category list
- * and the override map - once. 
- */
+// Precompute what getAppCategory() needs, so classifying many apps in one
+// pass does not re-read settings for each of them.
 export function getCategoryContext(settings) {
     return {
         categories: getCategories(settings),
@@ -462,80 +198,39 @@ export function getCategoryContext(settings) {
     };
 }
 
-/**
- * Determine the app's category, respecting overrides and enabled/merged
- * category validation. Pass a context from getCategoryContext() when
- * classifying many apps in one pass to avoid redundant settings reads.
- */
 export function getAppCategory(appInfo, context) {
-    try {
-        const currentCategories = context.categories;
+    const {categories, overrides} = context;
 
-        const resolve = candidate =>
-            _isValidTargetCategory(currentCategories, candidate) ? candidate : 'Other';
+    // Only enabled, non-merged categories are valid buckets.
+    const resolve = name => {
+        const target = categories.find(c => c.enabled && !c.merge && _categoryNamesEqual(c.name, name));
+        return target ? target.name : 'Other';
+    };
 
-        // Check user overrides first (e.g. drag-and-drop into a
-        // category), but validate them against current enabled/merged category config.
-        const id = appInfo.get_id();
-        const overrides = context.overrides;
-        if (overrides.has(id)) {
-            const overrideCategory = overrides.get(id).category;
-            const catConfig = currentCategories.find(c => _categoryNamesEqual(c.name, overrideCategory));
-            if (catConfig) {
-                if (!catConfig.enabled) {
-                    return 'Other';
-                }
-                if (catConfig.merge) {
-                    return resolve(catConfig.merge);
-                }
-                return resolve(catConfig.name);
-            }
+    const override = overrides.get(appInfo.get_id());
+    if (override) {
+        const config = categories.find(c => _categoryNamesEqual(c.name, override.category));
+        if (config)
+            return config.enabled ? resolve(config.merge || config.name) : 'Other';
 
-            if (_categoryNamesEqual(overrideCategory, 'Other')) {
-                // An explicit, intentional placement into Other (e.g.
-                // dragging an app there, or reordering within it) -
-                // honor it as-is rather than falling through below.
-                return 'Other';
-            }
-
-            // No config found and it isn't 'Other' either, meaning the
-            // custom category itself was deleted entirely (not just
-            // disabled - that case is handled above and still resolves
-            // to 'Other'). The override is now stale, so fall through
-            // to natural detection via the app's own .desktop
-            // Categories= below instead of stranding it in Other.
-        }
-        const categories = appInfo.get_categories();
-        if (!categories)
+        // An explicit placement into Other (drag-and-drop or reordering).
+        if (_categoryNamesEqual(override.category, 'Other'))
             return 'Other';
 
-        const categoryList = Array.isArray(categories) ?
-            categories.map(c => String(c).trim()).filter(Boolean) :
-            categories.split(';').map(c => String(c).trim()).filter(Boolean);
-
-        // Use the app's own category list order so a specific enabled/merged
-        // category can match before a broader disabled one.
-        for (const trimmed of categoryList) {
-            if (!trimmed) {
-                continue;
-            }
-            const catConfig = currentCategories.find(c => _categoryNamesEqual(c.name, trimmed));
-            if (!catConfig) {
-                // Unknown category name to us, keep checking the app's other listed categories.
-                continue;
-            }
-            if (!catConfig.enabled) {
-                // This particular category is disabled; the app might
-                // still match a different, enabled category it also lists.
-                continue;
-            }
-            if (catConfig.merge) {
-                return resolve(catConfig.merge);
-            }
-            return resolve(catConfig.name);
-        }
-    } catch (e) {
-        console.error('Error getting app category:', e);
+        // The override points to a deleted category, so it is stale: fall
+        // through to the categories listed in the app's .desktop file.
     }
+
+    // Follow the app's own category order so a specific enabled category can
+    // match before a broader disabled one.
+    const desktopCategories = appInfo.get_categories()?.split(';') ?? [];
+    for (const name of desktopCategories) {
+        const config = categories.find(c => _categoryNamesEqual(c.name, name));
+        if (!config?.enabled)
+            continue;
+
+        return resolve(config.merge || config.name);
+    }
+
     return 'Other';
 }
